@@ -2,7 +2,7 @@
 title: "Dismantling the bulk: examining neuronal heterogeneity using single-cell techniques"
 author: Sara Linker, Apua Paquola, Roger Lasken, and Keegan Korthauer
 date: 7/25/2016
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
