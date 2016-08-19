@@ -1,20 +1,25 @@
 ---
 title: "Dismantling the bulk: examining neuronal heterogeneity using single-cell techniques"
 author: Sara Linker, Apua Paquola, Roger Lasken, and Keegan Korthauer
-date: 7/25/2016
-output: github_document
+date: 8/19/2016
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(out.width='750px', out.height='750px', dpi=300,
+                      fig.height=7, fig.width=7)
 knitr::opts_knit$set(root.dir="~/FestivalWorkshopSC/")
 ```
 
-## Welcome to the Festival of Genomics workshop on single-cell analyses
+### Welcome to the Festival of Genomics workshop on single-cell analyses
 
 This is an R Markdown document that contains instructions and code for the examples used in todays workshop.  The first few steps will check that you have all the packages and data files necessary to carry out all of the analyses.
 
-## Getting Started
+# Hour 1: Getting Started
+Sara's section
+...
+
 ### Check that the Brain Atlas data files are present
 
 The following code chunk assumes that Brain Atlas files have been downloaded and placed in a folder in your home directory entitled "FestivalWorkshopSC".  If you have downloaded these files to another location, either create a new folder and move the three .csv data files and one documentation text file there, or substitute the file path to where they are currently located for "~/FestivalWorkshopSC".
@@ -31,30 +36,136 @@ If any of the preceding lines return `FALSE`, double check that you have set the
 
 ### Read the Brain Atlas data files into R
 
-The `read.csv` function in R is useful for reading in .csv (comma-separated value) files.  First, we'll read in the main data file `fpkm_table.csv' to a data frame and check it's contents
+The `read.csv` function in R is useful for reading in .csv (comma-separated value) files.  First, we'll read in the main data file `fpkm_table.csv` to a data frame using this function and check its contents.  The extra arguments to this function help to format our object so that we have row and column names, and we use character variables instead of converting to factors.  For more details on these arguments, you can type `help(read.csv)`.  In the resulting `fpkm` object, we have genes in rows (45,771) and cells in columns (1772).
 
 ```{r Read in FPKM, eval=TRUE, echo=TRUE}
-fpkm <- read.csv("fpkm_table.csv", stringsAsFactors = FALSE, header=TRUE)
-str(fpkm)
+fpkm <- read.csv("fpkm_table.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
+str(fpkm[,1:20]) # restrict to the first 20 columns (cells) 
 ```
 
-TODO: read in gene and cell metadata files ...
+Next, we'll read in the metadata files, which contain additional information about the rows and columns of the `fpkm` object.  The `rows-genes.csv` file contains 45,771 rows (one for each gene) and 5 columns containing information such as the chromosomal location, gene symbol, and gene description.  
+
+```{r Read in Gene Metdadata, eval=TRUE, echo=TRUE}
+genes <- read.csv("rows-genes.csv", stringsAsFactors = FALSE, header = TRUE)
+str(genes)
+```
+
+The `columns-cells.csv` file contains 1772 rows (one for each cell) and columns containing information such as age of the donor mouse, targeted brain region, brain slice ID, percentage of reads that mapped, and putative cell subtype.
+
+```{r Read in Cell Metadata, eval=TRUE, echo=TRUE}
+cells <- read.csv("columns-cells.csv", stringsAsFactors = FALSE, header = TRUE)
+str(cells)
+```
+
+More detailed information about the column data in each of these three files can be found in the `README.txt` file.  Here is a peek at the contents of that file (here we are only showing the first 30 lines).
+
+```{bash Peek at README.txt file, eval=TRUE, echo=TRUE}
+# This is a bash command, to be executed at the command line (not within R);
+# Alternatively, simply open the README.txt in your favorite text editor to view its contents
+head -30 README.txt
+```
 
 ### Check that the desired R packages have been installed
 
 Once a list of desired R packages is finalized, can check that they are installed with 
 
 ```{r Check for desired packages, eval=TRUE, echo=TRUE, results="hide", message=FALSE, warning=FALSE}
-require(edgeR)
-require(scde)
-require(monocle)
+require(scde)     #bioconductor
+require(monocle)  #bioconductor
+require(sincell)  #bioconductor
+require(scDD)     #github
+require(ggplot2)  #cran
+require(devtools) #cran
 ```
 
-If any of these commands return a message that includes "there is no package called...", then the package is missing and needs to be installed.  For Bioconductor packages, for example ```edgeR```, this can be done with the following code:
+If any of these commands return a message that includes "there is no package called...", then the package is missing and needs to be installed.  Note that packages may be stored in one of several package repositories.  The most popular are Bioconductor, github, and CRAN.  For Bioconductor packages, for example ```edgeR```, this can be done with the following code:
 
-```{r install bioconductor package, echo=TRUE, eval=TRUE, results="hide", message=FALSE}
+```{r install bioconductor package, echo=TRUE, eval=FALSE, results="hide", message=FALSE}
 source("http://bioconductor.org/biocLite.R")
 biocLite("monocle")
 ```
 
-TODO: add analyses modules ...
+For CRAN packages, for example ```devtools```, installation can be done with the following code:
+
+```{r install cran packages, echo=TRUE, eval=FALSE}
+install.packages(devtools)
+``` 
+
+For Github packages, for example ```scDD```, installation can be done with the following code:
+
+```{r install github packages, echo=TRUE, eval = FALSE}
+install.packages("devtools")
+devtools::install_github("kdkorthauer/scDD")
+```
+
+### Visualize major axes of variation in a PCA plot
+
+```{r PCA, eval = TRUE, echo = TRUE}
+# extract top 500 variable genes
+gene.var <- apply(fpkm, 1, function(x) var(log(x[x>0])))
+fpkm.top500 <- fpkm[which(rank(-gene.var)<=500),]
+
+fpkm.pca <- prcomp(log(fpkm.top500+1),
+                   center = TRUE,
+                   scale. = TRUE) 
+summary(fpkm.pca)$importance[,1:5]
+plot(fpkm.pca, type="l", main="Top 10 PCs")
+
+color_class <- rainbow(length(unique(cells$sampling_region)))
+# specify col=color_class[as.numeric(factor(cells$sampling_region))]
+plot(fpkm.pca$rotation[,1], fpkm.pca$rotation[,2], 
+      xlab="PC 1", ylab="PC 2", col=cells$subclass_color, pch=20)
+```
+
+# Hour 2: Normalization and Quality Control of scRNA-seq
+Apua's Section 
+...
+
+### Normalization
+
+...
+
+### Quality Control (QC measures)
+
+```{r Detection Rate, eval = TRUE, echo = TRUE}
+detectionRate <- apply(fpkm, 2, function(x) sum(x > 0) / length(x))
+hist(detectionRate)
+```
+
+...
+
+
+# Hour 3: Analysis Modules
+
+Keegan's Section
+...
+
+### Identify the highly variable genes
+
+```{r Highly Variable Genes, eval = TRUE, echo = TRUE}
+library(sincell)
+```
+...
+
+### Identify differentially expressed genes
+
+```{r DE, eval = TRUE, echo = TRUE}
+library(scde)
+library(scDD)
+```
+...
+
+### Order cells by "Psuedotime" (temporal-spatial variation)
+
+```{r Pseudotime, eval = TRUE, echo = TRUE}
+library(monocle)
+```
+...
+
+### Identify genes with oscillating expression patterns
+
+```{r Oscillating genes, eval = TRUE, echo = TRUE}
+library(Oscope)
+```
+
+TODO: Fill in the above analysis modules ...
