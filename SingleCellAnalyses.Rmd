@@ -1,7 +1,7 @@
 ---
 title: "Dismantling the bulk: examining neuronal heterogeneity using single-cell techniques"
 author: Sara Linker, Apua Paquola, Roger Lasken, and Keegan Korthauer
-date: 8/19/2016
+date: 8/26/2016
 output: html_document
 ---
 
@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(out.width='750px', out.height='750px', dpi=300,
                       fig.height=7, fig.width=7)
-knitr::opts_knit$set(root.dir="~/FestivalWorkshopSC/")
+knitr::opts_knit$set(root.dir="~/FestivalWorkshopSC/BrainAtlas")
 ```
 
 ### Welcome to the Festival of Genomics workshop on single-cell analyses
@@ -22,47 +22,39 @@ Sara's section
 
 ### Check that the Brain Atlas data files are present
 
-The following code chunk assumes that Brain Atlas files have been downloaded and placed in a folder in your home directory entitled "FestivalWorkshopSC".  If you have downloaded these files to another location, either create a new folder and move the three .csv data files and one documentation text file there, or substitute the file path to where they are currently located for "~/FestivalWorkshopSC".
+The following code chunk assumes that Brain Atlas files have been downloaded and placed in the "BrainAtlas" subdirectory of a folder in your home directory entitled "FestivalWorkshopSC".  If you have downloaded these files to another location, either create a new folder and move the files there, or substitute the file path to where they are currently located for "~/FestivalWorkshopSC/BrainAtlas".  If you are using the RStudio Server instance provided by the workshop, change the first line that follows to `setwd("/home/FestivalWorkshopSC/BrainAtlas")`
 
 ```{r Check for data files, eval=TRUE, echo=TRUE}
-setwd("~/FestivalWorkshopSC/")
-file.exists("columns-cells.csv")
-file.exists("fpkm_table.csv")
-file.exists("rows-genes.csv")
+setwd("~/FestivalWorkshopSC/BrainAtlas")
+file.exists("cell_metadata.csv")
+file.exists("genes_counts.csv")
 file.exists("README.txt")
 ```
 
-If any of the preceding lines return `FALSE`, double check that you have set the correct working directory and that all four download files have been placed in that folder.  If they are missing, you can download the files [here](http://celltypes.brain-map.org/api/v2/well_known_file_download/502999251).
+If any of the preceding lines return `FALSE`, double check that you have set the correct working directory and that all download files have been placed in that folder.  If they are missing, you can download the files [here](http://casestudies.brain-map.org/celltax/download_archive).  Note that there will be more files than listed here (including alternate gene count quantifications, and metadata about data-driven cluster memberships as discussed in the paper ["Adult mouse cortical cell taxonomy revealed by single cell transcriptomics"](http://www.nature.com/neuro/journal/v19/n2/full/nn.4216.html)), but these are the ones we will make use of.
 
 ### Read the Brain Atlas data files into R
 
-The `read.csv` function in R is useful for reading in .csv (comma-separated value) files.  First, we'll read in the main data file `fpkm_table.csv` to a data frame using this function and check its contents.  The extra arguments to this function help to format our object so that we have row and column names, and we use character variables instead of converting to factors.  For more details on these arguments, you can type `help(read.csv)`.  In the resulting `fpkm` object, we have genes in rows (45,771) and cells in columns (1772).
+The `read.csv` function in R is useful for reading in .csv (comma-separated value) files.  First, we'll read in the main data file `genes_counts.csv` to a data frame using this function and check its contents.  The extra arguments to this function help to format our object so that we have row and column names, and we use character variables instead of converting to factors.  For more details on these arguments, you can type `help(read.csv)`.  In the resulting `coutns` object, we have genes in rows (24057) and cells in columns (1679).
 
-```{r Read in FPKM, eval=TRUE, echo=TRUE}
-fpkm <- read.csv("fpkm_table.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
-str(fpkm[,1:20]) # restrict to the first 20 columns (cells) 
+```{r Read in Counts, eval=TRUE, echo=TRUE}
+counts <- read.csv("genes_counts.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
+str(counts[,1:20]) # restrict to the first 20 columns (cells) 
 ```
 
-Next, we'll read in the metadata files, which contain additional information about the rows and columns of the `fpkm` object.  The `rows-genes.csv` file contains 45,771 rows (one for each gene) and 5 columns containing information such as the chromosomal location, gene symbol, and gene description.  
-
-```{r Read in Gene Metdadata, eval=TRUE, echo=TRUE}
-genes <- read.csv("rows-genes.csv", stringsAsFactors = FALSE, header = TRUE)
-str(genes)
-```
-
-The `columns-cells.csv` file contains 1772 rows (one for each cell) and columns containing information such as age of the donor mouse, targeted brain region, brain slice ID, percentage of reads that mapped, and putative cell subtype.
+The `cell_metadata.csv` file contains 1679 rows (one for each cell) and columns containing information such as collection date, sequencing type, total reads, mapping percentage, dissection layer, and major/minor derived cell subtypes. 
 
 ```{r Read in Cell Metadata, eval=TRUE, echo=TRUE}
-cells <- read.csv("columns-cells.csv", stringsAsFactors = FALSE, header = TRUE)
+cells <- read.csv("cell_metadata.csv", stringsAsFactors = FALSE, header = TRUE)
 str(cells)
 ```
 
-More detailed information about the column data in each of these three files can be found in the `README.txt` file.  Here is a peek at the contents of that file (here we are only showing the first 30 lines).
+More detailed information about the files downloaded from the Allen Brain Atlas can be found in the `README.txt` file provided.  Here is a peek at the contents of that file.
 
 ```{bash Peek at README.txt file, eval=TRUE, echo=TRUE}
 # This is a bash command, to be executed at the command line (not within R);
 # Alternatively, simply open the README.txt in your favorite text editor to view its contents
-head -30 README.txt
+head README.txt
 ```
 
 ### Check that the desired R packages have been installed
@@ -102,19 +94,24 @@ devtools::install_github("kdkorthauer/scDD")
 
 ```{r PCA, eval = TRUE, echo = TRUE}
 # extract top 500 variable genes
-gene.var <- apply(fpkm, 1, function(x) var(log(x[x>0])))
-fpkm.top500 <- fpkm[which(rank(-gene.var)<=500),]
+gene.var <- apply(counts, 1, function(x) var(log(x[x>0])))
+counts.top500 <- counts[which(rank(-gene.var)<=500),]
 
-fpkm.pca <- prcomp(log(fpkm.top500+1),
+counts.pca <- prcomp(log(counts.top500+1),
                    center = TRUE,
                    scale. = TRUE) 
-summary(fpkm.pca)$importance[,1:5]
-plot(fpkm.pca, type="l", main="Top 10 PCs")
+summary(counts.pca)$importance[,1:5]
+plot(counts.pca, type="l", main="Top 10 PCs")
 
-color_class <- rainbow(length(unique(cells$sampling_region)))
-# specify col=color_class[as.numeric(factor(cells$sampling_region))]
-plot(fpkm.pca$rotation[,1], fpkm.pca$rotation[,2], 
-      xlab="PC 1", ylab="PC 2", col=cells$subclass_color, pch=20)
+color_class <- rainbow(length(unique(cells$major_class)))
+plot(counts.pca$rotation[,1], counts.pca$rotation[,2], 
+      xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$major_class))], pch=20,
+      main="PCA plot of cells colored by derived major class")
+
+color_class <- rainbow(length(unique(cells$layer_dissectoin)))
+plot(counts.pca$rotation[,1], counts.pca$rotation[,2], 
+      xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$layer_dissectoin))], pch=20,
+      main="PCA plot of cells colored by Dissection Layer")
 ```
 
 # Hour 2: Normalization and Quality Control of scRNA-seq
@@ -128,7 +125,7 @@ Apua's Section
 ### Quality Control (QC measures)
 
 ```{r Detection Rate, eval = TRUE, echo = TRUE}
-detectionRate <- apply(fpkm, 2, function(x) sum(x > 0) / length(x))
+detectionRate <- apply(counts, 2, function(x) sum(x > 0) / length(x))
 hist(detectionRate)
 ```
 
