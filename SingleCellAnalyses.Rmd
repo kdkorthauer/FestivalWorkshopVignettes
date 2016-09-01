@@ -169,7 +169,7 @@ TODO: Fill in the above analysis modules ...
 
 ```{r Extract Code Snippets, eval = FALSE, echo = FALSE}
 # This snippet just generates a .R file that only contains the code snippets within this document
-# Not executed; need to run separately to update the .R file after this file is modified
+# Not executed; need to run separately to update the .R file after this file is modified ...
 library(knitr)
 knitr:::purl("~/Desktop/scRNAseq/FestivalWorkshop2016/FestivalWorkshopVignettes/SingleCellAnalyses.Rmd",  
      output="~/Desktop/scRNAseq/FestivalWorkshop2016/FestivalWorkshopVignettes/SingleCellAnalyses.R")
