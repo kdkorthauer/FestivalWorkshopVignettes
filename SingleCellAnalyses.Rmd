@@ -166,9 +166,9 @@ sum(keep)
 eset <- normalize(eset)
 ```
 
-Next, we'll perform some calculations to help us identify genes that have high variability.  To do so, we have to take into account the relationship between mean expression level and variance of expression level (also commonly referred to as 'dispersion' in the literature).  Namely, that what we observe in RNA-seq count data is that genes with higher expression have higher variance.  This is also a property of the Negative Biomial distribution, which is often used to model count data from RNA-seq experiments.  
+Next, we'll perform some calculations to help us identify genes that have high variability.  To do so, we have to take into account the relationship between mean expression level and variance of expression level (also commonly referred to as 'over-dispersion' in the literature).  Namely, that what we observe in RNA-seq count data is that genes with higher expression have higher variance.  This is also a property of the Negative Biomial distribution, which is often used to model count data from RNA-seq experiments.  
 
-We use the ```trendVar``` function of the ```scran``` package to estimate the relationship between the mean and variance (dispersion). This function fits a smooth type of curve to capture the trend in mean log-expression and variance log-expression, which will serve as an estimate of the baseline technical variability if we assume that the majority of the genes are constantly expressed (i.e. that there is no significant biological variability).  Note that this is a rather large assumption, and it is not necessarily true in our experiment.  How might this assumption be evaluated?  It is ideal to independently estimate this relationship for so-called 'spike-in' data (where a small number of artifical transcripts have been added at known concentrations such that any variability is assured to be technical).  However, these can be challenging to use and won't necessarily capture all of the technical variability depending on where in the protocol they are added.  Since we do not have spike-ins in our dataset, we proceed by estimating this relationship on the entire gene set, by using the ```use.spikes=FALSE``` option in the ```trendVar``` function.  
+We use the ```trendVar``` function of the ```scran``` package to estimate the relationship between the mean and variance. This function fits a smooth type of curve to capture the trend in mean log-expression and variance log-expression, which will serve as an estimate of the baseline technical variability if we assume that the majority of the genes are constantly expressed (i.e. that there is no significant biological variability).  Note that this is a rather large assumption, and it is not necessarily true in our experiment.  How might this assumption be evaluated?  It is ideal to independently estimate this relationship for so-called 'spike-in' data (where a small number of artifical transcripts have been added at known concentrations such that any variability is assured to be technical).  However, these can be challenging to use and won't necessarily capture all of the technical variability depending on where in the protocol they are added.  Since we do not have spike-ins in our dataset, we proceed by estimating this relationship on the entire gene set, by using the ```use.spikes=FALSE``` option in the ```trendVar``` function.  
 
 Once this relationship has been estimated, the ```decomposeVar``` (also in the ```scran``` package) essentially removes the estimated technical variability component from the total variability to calculate the estimated biological variability.  This is what we aim to use to find the highly variable genes.  We also visualize the mean and variance log-expression relationship, along with the estimated technical variabilty fit.  
 
@@ -200,13 +200,46 @@ boxplot(t(exprs(eset)[top20,]), las=2, ylab="Normalized log-expression", col="do
 
 Scanning the names of the top 20 highly variable genes, note that *Gad1, Cnr1, Arpp21, Sparcl1, Npy, Nfib,* and *Vip* are all in the list of 228 well-known neuronal subtype/non-neuronal marker genes listed in Supplementary Table 9.  What does this tell us about our experiment?
 
+*TODO: add heatmap of HVGs by cell subtype?*
+
 ### Identify differentially expressed genes
 
-```{r DE, eval = TRUE, echo = TRUE}
+In this module we will identify differentially expressed genes between neuronal subtypes, as well as between neurons and non-neuronal cell types.  As we have learned in this workshop, though scRNA-seq data shares many characteristics with bulk RNA-seq data, there are major differences which need to be accommodated in order to properly analyze it and fully exploit its advantages (namely the presence of dropouts, or zeroes, and increased heterogeneity from a combination of technical and biological sources).  First we will explore the method ```SCDE``` which compares expression magnitude between groups of cells while adjusting for drop-out and amplification biases on expression magnitude by fitting error models for individual cells.  
+
+```{r scde, eval = TRUE, echo = TRUE}
 library(scde)
-library(scDD)
+
+# remove the three cells with unknown major class
+eset.hvg <- eset.hvg[,-which(pData(eset.hvg)$major_class == "Unknown")]
+
+# find DE genes between excitatory and inhibitory neuronal subtypes
+eset.neur <- eset.hvg[,which(pData(eset.hvg)$major_class %in% c("Inhibitory", "Excitatory"))]
+group <- factor(pData(eset.neur)$major_class)
+
+# fit error models, get post probs, etc...
+
+# find DE genes between neuron and non-neuronal
+# define a factor that separates neuron and non-neuron
+neuron <- pData(eset.hvg)$major_class
+neuron[!(neuron %in% c("Inhibitory", "Excitatory"))] <- "Non-neuron"
+neuron[neuron %in% c("Inhibitory", "Excitatory")] <- "Neuron"
+neuron <- factor(neuron)
+
 ```
-...
+
+Next we'll explore the method ```scDD``` which also compares expression between groups of cells, but aims to detect differences in expression patterns that may be more complex than an overall magnitude change (or mean shift).  Specifically, cells within each group may be captured at different expression states, as may happen if a gene is oscillatory, or if it exhibits stochastic, "bursty" expression dynamics.  ```scDD``` can detect if these types of complex patterns differ across cell groups. 
+
+```{r scdd, eval = TRUE, echo = TRUE}
+library(scDD)
+
+# construct object to send to scDD
+
+# find DE genes between excitatory and inhibitory neuronal subtypes
+
+# find DE genes between neuron and non-neuronal
+
+```
+*TODO: fill out detailed stesps of the scde and scDD analysis modules*...
 
 ### Order cells by "Psuedotime" (temporal-spatial variation)
 
@@ -262,8 +295,8 @@ How does the spanning tree change if we allow a different number of paths?  How 
 ```{r Oscillating genes, eval = TRUE, echo = TRUE}
 library(Oscope)
 ```
+*TODO: add illustration of Oscope*...
 
-TODO: Fill in the above analysis modules ...
 
 ```{r Extract Code Snippets, eval = FALSE, echo = FALSE}
 # This snippet just generates a .R file that only contains the code snippets within this document
