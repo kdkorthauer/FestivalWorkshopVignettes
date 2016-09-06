@@ -210,10 +210,52 @@ library(scDD)
 
 ### Order cells by "Psuedotime" (temporal-spatial variation)
 
-```{r Pseudotime, eval = TRUE, echo = TRUE}
+Just like we saw in the Highly Variable Genes module, it can be convenient to store all information about an experiment (measurements *and* metadata) in one R object.  This is a recurring theme in the Bioconductor project, so many R packages on Bioconductor rely on constructs like these.  The benefits are gains in efficiency and reduction of errors in associating metadata objects back to the measurement objects, and often many package developers use objects that are compatible across several methods.  However, with the explosion in methods development for scRNA-seq analysis, we have not yet established a 'standard' object type for storing and analysing scRNA-seq data in R.  The result is that packages developed simulataneously and independently have slightly different formatting requirements.  So long story short, we have to convert our ```SCESet``` object from the ```scater``` package to a similar ```CellDataSet``` object for use with the ```monocle``` package.  Don't worry about the details here.
+
+Our goal in this analysis module is to discover a latent trajectory of variation using ```Monocle``` which may represent spatial organization of the cells.  Since it is recommended to use genes that are believed to be important in determining where cells are located in relation to eachother (the 'ordering'), we use the dataset that only contains the top 2000 highly variable genes that we constructed a previous analysis module.  
+
+```{r Monocle Object, eval = TRUE, echo = TRUE}
 library(monocle)
+# construct a CellDataSet object with our SCESet object that contains only the top 2000 highly variable genes
+cset <- newCellDataSet(cellData = exprs(eset.hvg), phenoData = phenoData(eset.hvg))
+class(cset)
 ```
-...
+
+The ```setOrderingFilter``` function requires that we select which genes to use in the ordering.  Since we have already filtered our ```cset``` dataset to include only the top 2000 highly variable genes, ordered by biological variance, we can subset the top 100 genes to include the top 100 highly variable genes. Before applying Monocle's ordering algorithm, we use the ```reduceDimensions``` function to perform dimension reduction on this set of 2000 genes.  Finally, the ```orderCells``` function carries out the Monocle algorithm.  Note that we need to specify the number of paths here, which represent the number of main cell fates (or states) believed to be present.  Here we choose one, which represents the path along the cortical layers as linear.  Note that this step can take several minutes to complete.
+
+Since we have already demonstrated that major cell type (inhibitory neuron, excitatory neuron, and non-neuronal cell) is a major source of variation, in this module we will examine the trajectories within the major neuronal cell types.  To do so, we create two separate ```CellDataSets``` by subsetting on the major class listed in the phenotypic metadata and carrying out the Monocle algorithm separately on both.  We also subset on the cells that have a major labeled dissection layer other than "All" (lower versus upper in Inhibitory neurons; L1-L6 in Excitatory neurons).
+
+```{r Pseudotime algorithm, eval = TRUE, echo = TRUE}
+options(expressions = 500000) # 'under-the-hood' option; need to execute if using OSX or Windows due to a limitation on C stack size
+
+# Run Monocle on subset of Inhibitory neurons
+cset.inhibitory <- cset[,phenoData(cset)$major_class=="Inhibitory" & 
+                         phenoData(cset)$layer_dissectoin %in% c("lower", "upper")]
+cset.inhibitory <- setOrderingFilter(cset.inhibitory, ordering_genes=rownames(cset.inhibitory)[1:100])
+cset.inhibitory <- reduceDimension(cset.inhibitory, use_irlba = FALSE) # Reduce dimensionality
+cset.inhibitory <- orderCells(cset.inhibitory, num_paths = 1, reverse = FALSE) # Order cells
+
+# Run Monocle on subset of Excitatory neurons
+cset.excitatory <- cset[,phenoData(cset)$major_class=="Excitatory" & 
+                         phenoData(cset)$layer_dissectoin %in% c("L1", "L2/3", "L4", "L5", "L6", "L6a", "L6b")]
+cset.excitatory <- setOrderingFilter(cset.excitatory, ordering_genes=rownames(cset.excitatory)[1:100])
+cset.excitatory <- reduceDimension(cset.excitatory, use_irlba = FALSE) # Reduce dimensionality
+cset.excitatory <- orderCells(cset.excitatory, num_paths = 1, reverse = FALSE) # Order cells
+```
+
+Next we plot the spanning tree to visualize the cell ordering projected on the first two components of variation.  We color the cells in this space by dissection layer see if we have recovered any of the spatial structure of the cortical layers.  We also color the cells by Cre reporter line.  Did we recover any spatial organization in these two subsets?  Does there seem to be variation by Cre reporter?
+
+```{r Pseudotime plotting, eval = TRUE, echo = TRUE}
+# plotting by various factors
+plot_spanning_tree(cset.inhibitory, color_by="layer_dissectoin") # plot spanning tree
+plot_spanning_tree(cset.inhibitory, color_by = "cre")
+
+# Excitatory
+plot_spanning_tree(cset.excitatory, color_by="layer_dissectoin") # plot spanning tree
+plot_spanning_tree(cset.excitatory, color_by="cre") # plot spanning tree
+```
+
+How does the spanning tree change if we allow a different number of paths?  How does the spanning tree change if we include different gene sets?
 
 ### Identify genes with oscillating expression patterns
 
