@@ -28,6 +28,7 @@ The following code chunk assumes that Brain Atlas files have been downloaded and
 setwd("~/FestivalWorkshopSC/BrainAtlas")
 file.exists("cell_metadata.csv")
 file.exists("genes_counts.csv")
+file.exists("ercc_counts.csv")
 file.exists("README.txt")
 ```
 
@@ -47,6 +48,17 @@ The `cell_metadata.csv` file contains 1679 rows (one for each cell) and columns 
 ```{r Read in Cell Metadata, eval=TRUE, echo=TRUE}
 cells <- read.csv("cell_metadata.csv", stringsAsFactors = FALSE, header = TRUE)
 str(cells)
+```
+
+The 'ercc_counts.cxv' file contains 1679 columns (one for each cell) and 93 rows containing the counts for the ERCC spike-in control RNA transcripts (and spike in tdTomato).  The ERCC spike-ins are a standard set of RNA transcripts that are spiked in at known concentrations to each cell (more on this later). We'll remove the tdTomato transcript since this does not serve the same purpose as the ERCC spike-ins.
+
+```{r Read in ERCC, eval=TRUE, echo=TRUE}
+ercc <- read.csv("ercc_counts.csv", stringsAsFactors = FALSE, header = TRUE, row.names=1)
+str(ercc[,1:20]) # restrict to the first 20 columns (cells)
+
+# remove the tdTomato row
+whichTomato <- grep("tdTomato", rownames(ercc))
+ercc <- ercc[-whichTomato,]
 ```
 
 More detailed information about the files downloaded from the Allen Brain Atlas can be found in the `README.txt` file provided.  Here is a peek at the contents of that file.
@@ -132,7 +144,6 @@ hist(detectionRate)
 
 ...
 
-
 # Hour 3: Analysis Modules
 
 Keegan's Section
@@ -142,35 +153,61 @@ Keegan's Section
 
 In this module, we will identify genes that are highly variable across the entire cell population.  This will give us a subset of genes to focus on that is likely enriched for those that are driving heterogeneity among cellular subtypes.  
 
-For ease in downstream analysis with various R packages we'll make use of today, we'll convert the data.frames that currently (separately) house the counts and cell metadata into a Bioconductor object called an SCDESet introduced by the ```scater``` package.  This object is a container that can hold raw and normalized expression values, along with the metadata for both samples and genes, in one place.  We'll also perform some basic preprocessing and normalization here to adjust for library size using the pool and deconvolve method in the ```scran``` package, as well as remove genes with expression in only a few cells (*** these steps may not be necessary if this was already carried out in Apua's section... Can refer back to the section or remove if it is redundant ***).
+For ease in downstream analysis with various R packages we'll make use of today, we'll convert the data.frames that currently (separately) house the counts and cell metadata into a Bioconductor object called an SCESet introduced by the ```scater``` package.  This object is a container that can hold raw and normalized expression values, along with the metadata for both samples and genes, in one place. 
 
-```{r Preprocess with scater and scran, eval = TRUE, echo = TRUE}
+```{r Preprocess, eval = TRUE, echo = TRUE}
 library(scater)
 library(scran)
 rownames(cells) <- cells$long_name
-eset <- newSCESet(countData = counts, phenoData = AnnotatedDataFrame(cells))  
+
+# construct a SCESet that also contains the gene counts, ercc counts, and metadata
+all.equal(colnames(counts), colnames(ercc)) # check that the cells are in the same order across the two datasets
+counts.all <- rbind(counts, ercc)  # combine the two into one data.frame
+eset <- newSCESet(countData = counts.all, phenoData = AnnotatedDataFrame(cells))
+isSpike(eset) <- grepl("^ERCC", rownames(eset))  #designate which rows contain spikeins instead of genes (for HVG analysis)
+```
+
+Now that our SCESet has been created, we'll also perform some basic preprocessing and normalization here to adjust for library size using the pool and deconvolve method in the ```scran``` package, as well as remove genes with very low expression (*** these steps may not be necessary if this was already carried out in Apua's section... Can refer back to the section or move/remove if it is redundant ***).
+
+```{r QC, eval=TRUE, echo=TRUE}
+# QC to compare the level of dropout in endogeneous genes to ERCC spike ins in raw data
+eset <- calculateQCMetrics(eset, feature_controls=isSpike(eset))
+plotQC(eset, type = "exprs-freq-vs-mean")
+```
+
+Here we apply a couple of filters to remove genes that are expressed at a uniformly low level across the population, and then apply our chosen normalization procedure.
+
+```{r filter, eval=TRUE, echo=TRUE}
+
+# first, filter out genes that are almost always zero (at least 50 out of 1679 cells must have nonzero expression)
+keep <- rowSums(counts(eset) > 0) >= 50
+eset <- eset[keep,] 
+sum(keep)
+
+# next, filter out genes with very low average nonzero expression across all cells (requres a mean of at least 5 counts across all cells)
+keep <- rowMeans(counts(eset)) >= 5
+eset <- eset[keep,]
+sum(keep)
 
 # normalize counts for library size using the pool & deconvolve method of Lun et al. (2016)
 eset <- computeSumFactors(eset, sizes=c(20, 40, 60, 80))
 summary(sizeFactors(eset))
+
+# use the size factors calculated above to normalize the counts - these get placed in the 'exprs' slot
+eset <- normalize.SCESet(eset)
+```
+
+Let's check the correlation of our size factors with the library size.  The strong positive correlation suggests that the size factors calculated by this normalization procedure are primarily adjusting for sequencing depth and overall capture rate. 
+
+```{r plot size factors, eval=TRUE, echo=TRUE}
 plot(sizeFactors(eset), colSums(counts(eset))/1e6, log="xy",
     ylab="Library Size (Total Counts in Millions)", xlab="Pooled Size Factor Estimate",
     main="Normalization factor versus library size")
-
-# filter out low-abundance genes (at least 10 cells out of 1679 must have nonzero expression)
-keep <- rowSums(exprs(eset)) >= 10
-eset <- eset[keep,] 
-sum(keep)
-
-# use the size factors calculated above to normalize the counts - these get placed in the 'exprs' slot
-eset <- normalize(eset)
 ```
 
-Next, we'll perform some calculations to help us identify genes that have high variability.  To do so, we have to take into account the relationship between mean expression level and variance of expression level (also commonly referred to as 'over-dispersion' in the literature).  Namely, that what we observe in RNA-seq count data is that genes with higher expression have higher variance.  This is also a property of the Negative Biomial distribution, which is often used to model count data from RNA-seq experiments.  
+Next, we'll perform some calculations to help us identify genes that have high variability.  To do so, we have to take into account the relationship between mean expression level and variance of expression level.  Namely, that what we observe in RNA-seq count data is that genes with higher expression have higher variance (also commonly referred to as 'over-dispersion' in the literature).  Note that for data on the log-scale, the trend is reverse (variance of log-expression decreases for higher mean log-expression genes).  This is also a property of the Negative Biomial distribution, which is often used to model count data from RNA-seq experiments.  
 
-We use the ```trendVar``` function of the ```scran``` package to estimate the relationship between the mean and variance. This function fits a smooth type of curve to capture the trend in mean log-expression and variance log-expression, which will serve as an estimate of the baseline technical variability if we assume that the majority of the genes are constantly expressed (i.e. that there is no significant biological variability).  Note that this is a rather large assumption, and it is not necessarily true in our experiment.  How might this assumption be evaluated?  It is ideal to independently estimate this relationship for so-called 'spike-in' data (where a small number of artifical transcripts have been added at known concentrations such that any variability is assured to be technical).  However, these can be challenging to use and won't necessarily capture all of the technical variability depending on where in the protocol they are added.  Since we do not have spike-ins in our dataset, we proceed by estimating this relationship on the entire gene set, by using the ```use.spikes=FALSE``` option in the ```trendVar``` function.  
-
-Once this relationship has been estimated, the ```decomposeVar``` (also in the ```scran``` package) essentially removes the estimated technical variability component from the total variability to calculate the estimated biological variability.  This is what we aim to use to find the highly variable genes.  We also visualize the mean and variance log-expression relationship, along with the estimated technical variabilty fit.  
+We use the ```trendVar``` function of the ```scran``` package to estimate the relationship between the mean and variance. This function fits a smooth type of curve to capture the overall trend in mean log-expression and variance log-expression, which will serve as an estimate of the baseline technical variability if we assume that the majority of the genes are constantly expressed (i.e. that there is no significant biological variability in the majority of genes).  Once this relationship has been estimated, the ```decomposeVar``` (also in the ```scran``` package) essentially removes the estimated technical variability component from the total variability to calculate the estimated biological variability.  This is what we aim to use to find the highly variable genes.  We also visualize the mean and variance log-expression relationship, along with the estimated technical variabilty fit.  
 
 ```{r Indentify Variable Genes, eval=TRUE, echo=TRUE}
 var.fit <- trendVar(eset, trend="loess", use.spikes=FALSE, span=0.2)
@@ -183,24 +220,91 @@ o <- order(var.out$mean)
 lines(var.out$mean[o], var.out$tech[o], col="dodgerblue", lwd=2)
 ```
 
-Finally, we extract the top 2000 genes with highest biological variability to use in downstream analyses.  We also take a look at the distributions of normalized log-expression values for the top 20 biologically variable genes.  Note that the biological variability estimates provided by \Rcode{decomposeVar} seem to be rather robust to outlier cells, as none of the genes with highest variability seem to be driven by outliers.  Note that there exist methods to find **significantly** highly variable genes in scRNA-seq data, however, without some other independent estimate of technical variability, we don't have anything to compare to in order to establish significance.  What is an example of an independent measurement of technical variability? 
+The dip in the beginning of the plot is due to the very low expressed genes having very low variance since they are dominated by zeroes and very low counts. We can see this if we remake the plot but color the points by the proportion of cells with a zero value.
+
+```{r Color by dropout, eval=TRUE, echo=TRUE}
+# function to create a gradient of colors
+color.gradient <- function(x, colors=c("orange2", "blue"), colsteps=500) {
+  return( colorRampPalette(colors) (colsteps) [ findInterval(x, seq(min(x),max(x), length.out=colsteps)) ] )
+}
+pzero <- apply(counts(eset), 1, function(x) sum(x > 0) / length(x))
+
+# replot with color by proportion of zero
+plot(var.out$mean, var.out$total, pch=16, cex=0.6, xlab="Mean log-expression", 
+    ylab="Variance of log-expression", col=color.gradient(pzero))
+colscale <- c(0,0.25,0.5,0.75,1)
+legend(11.5,40, title="Proportion cells zero", legend=paste0(1-round(quantile(pzero, colscale),2)),
+        col=color.gradient(quantile(pzero, colscale)), pch=16)
+```
+
+Recall the assumption we made in estimating the mean-variance relationship above: there is no significant biological variability in the majority of genes.  Is this true in our experiment? How might this assumption be evaluated?
+
+If this assumption is suspect, it is ideal to independently estimate this relationship for so-called 'spike-in' data (where a small number of artifical transcripts have been added at known concentrations such that any variability is assured to be technical).  Fortunately, in this experiment we have ERCC control spike-ins, so we'll repeat the steps above to estimate the mean-variance relationship *only* on the spike-ins. We do this by using the ```use.spikes=TRUE``` option in the ```trendVar``` function.  We also increase the smoothing span a bit since we are using fewer points for estimation.  
+
+```{r Indentify Variable Genes with spikes, eval=TRUE, echo=TRUE}
+var.fit.spike <- trendVar(eset, trend="loess", use.spikes=TRUE, span=0.3)
+var.out.spike <- decomposeVar(eset, var.fit.spike)
+
+# plot the mean versus variance of log-expression, along with the technical variance fit
+plot(var.out.spike$mean, var.out.spike$total, pch=16, cex=0.6, xlab="Mean log-expression", 
+    ylab="Variance of log-expression")
+o <- order(var.out$mean)
+lines(var.out$mean[o], var.out$tech[o], col="dodgerblue", lwd=2)
+o <- order(var.out.spike$mean)
+lines(var.out.spike$mean[o], var.out.spike$tech[o], col="red", lwd=2)
+points(var.fit.spike$mean, var.fit.spike$var, col="red", pch=16)
+```
+
+How similar are the two trend estimations?  What does this suggest about the assumption that most genes do not have significant biological variability?
+
+Finally, we extract the top 500 genes with highest biological variability to use in downstream analyses.  We'll also examine the distributions of the top 25 highly variable genes. Here we will use the estimate of biological variability we obtained by fitting the spike-ins above.  However, note that spike-ins are not always available, they can be challenging to incorporate into the protocol, and won't necessarily capture all of the technical variability depending on where in the protocol they are added.  
 
 ```{r Extract Variable Genes, eval=TRUE, echo=TRUE}
-# extract and examine the top 2000 genes by biological variance
-top.hvg <- order(var.out$bio, decreasing=TRUE)[1:2000]
-head(var.out[top.hvg,])
+# extract and examine the top 500 genes by biological variance
+top.hvg <- order(var.out.spike$bio, decreasing=TRUE)[1:500]
+head(var.out.spike[top.hvg,])
 
 # construct a new eset object that only contains the highly variable genes for downstream analysis
 eset.hvg <- eset[top.hvg,]
 
-# plot distribution of the top 20 highly variable genes
-top20 <- top.hvg[1:20]
-boxplot(t(exprs(eset)[top20,]), las=2, ylab="Normalized log-expression", col="dodgerblue", main="Top 20 Highly Variable Genes")
+# plot distribution of the top 25 highly variable genes
+top25 <- top.hvg[1:25]
+boxplot(t(exprs(eset)[top25,]), las=2, ylab="Normalized log-expression", col="dodgerblue", main="Top 25 Highly Variable Genes")
 ```
 
-Scanning the names of the top 20 highly variable genes, note that *Gad1, Cnr1, Arpp21, Sparcl1, Npy, Nfib,* and *Vip* are all in the list of 228 well-known neuronal subtype/non-neuronal marker genes listed in Supplementary Table 9.  What does this tell us about our experiment?
+Note that the biological variability estimates provided by \Rcode{decomposeVar} seem to be rather robust to outlier cells, as none of the genes with highest variability seem to be driven by outliers.  Scanning the names of the top 25 highly variable genes, note that *Gad1, Cnr1, Zcchc12, Arpp21, Sparcl1, Npy, Nfib, Snap25* and *Vip* are all in the list of 228 well-known neuronal subtype/non-neuronal marker genes listed in Supplementary Table 9.  What does this tell us about our experiment?
 
-*TODO: add heatmap of HVGs by cell subtype?*
+Let's also look again at the mean log-expression versus variance log-expression plot we generated above, but this time highlight the locations of top 500 and top 25 highly variable genes.
+
+```{r Replot HVG, eval=TRUE, echo=TRUE}
+# plot the mean versus variance of log-expression, along with the technical variance fit
+plot(var.out$mean, var.out$total, pch=16, cex=0.6, xlab="Mean log-expression", 
+    ylab="Variance of log-expression")
+o <- order(var.out$mean)
+lines(var.out$mean[o], var.out$tech[o], col="dodgerblue", lwd=2)
+points(var.out$mean[top.hvg], var.out$total[top.hvg], col="darkorange2", cex=0.6, pch=16)
+points(var.out$mean[top25], var.out$total[top25], col="red4", cex=0.7, pch=15)
+legend(11.5, 40, legend=c("Top 25 HVGs", "Top 500 HVGs"), pch = c(15, 16), 
+       col= c("red4", "darkorange2"), cex=1.1)
+```
+
+Finally, we'll create a heatmap plot to visualize how the overall expression of the top 25 HVGs is associated with the major cell classes.
+
+```{r heatmap HVG, eval=TRUE, echo=TRUE}
+# extract matrix of hvg expression for plotting
+m <- exprs(eset)[top25,]
+
+# plot heatmap 
+library(RColorBrewer)
+heatmap(m/apply(m,1,max),zlim=c(0,1),labCol=NA, col=brewer.pal(9,"YlOrRd"),
+        scale="none",ColSideColors=rainbow(5)[as.numeric(factor(phenoData(eset)$major_class))])
+par(lend = 1)           # square line ends for the color legend
+legend("topleft", inset=-0.04,
+    legend = unique(phenoData(eset)$major_class),
+    col = rainbow(5)[as.numeric(as.factor(unique(phenoData(eset)$major_class)))],
+    lty= 1, lwd = 5, cex=0.6
+)
+```
 
 ### Identify differentially expressed genes
 
