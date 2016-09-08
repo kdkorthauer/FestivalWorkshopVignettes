@@ -222,6 +222,7 @@ lines(var.out$mean[o], var.out$tech[o], col="dodgerblue", lwd=2)
 
 The dip in the beginning of the plot is due to the very low expressed genes having very low variance since they are dominated by zeroes and very low counts. We can see this if we remake the plot but color the points by the proportion of cells with a zero value.
 
+
 ```{r Color by dropout, eval=TRUE, echo=TRUE}
 # function to create a gradient of colors
 color.gradient <- function(x, colors=c("orange2", "blue"), colsteps=500) {
@@ -288,7 +289,7 @@ legend(11.5, 40, legend=c("Top 25 HVGs", "Top 500 HVGs"), pch = c(15, 16),
        col= c("red4", "darkorange2"), cex=1.1)
 ```
 
-Finally, we'll create a heatmap plot to visualize how the overall expression of the top 25 HVGs is associated with the major cell classes.
+Finally, we'll create a heatmap plot to visualize how the overall expression of the top 25 HVGs are associated with the major cell classes.
 
 ```{r heatmap HVG, eval=TRUE, echo=TRUE}
 # extract matrix of hvg expression for plotting
