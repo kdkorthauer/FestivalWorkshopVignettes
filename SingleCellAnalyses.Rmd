@@ -74,13 +74,15 @@ head README.txt
 Once a list of desired R packages is finalized, can check that they are installed with 
 
 ```{r Check for desired packages, eval=TRUE, echo=TRUE, results="hide", message=FALSE, warning=FALSE}
-require(scde)     #bioconductor
-require(monocle)  #bioconductor
-require(scran)    #bioconductor
-require(scater)   #bioconductor
-require(scDD)     #github
-require(ggplot2)  #cran
-require(devtools) #cran
+require(scde)         #bioconductor
+require(monocle)      #bioconductor
+require(scran)        #bioconductor
+require(scater)       #bioconductor
+require(Biobase)
+require(scDD)         #github
+require(ggplot2)      #cran
+require(devtools)     #cran
+require(RColorBrewer) #cran
 ```
 
 If any of these commands return a message that includes "there is no package called...", then the package is missing and needs to be installed.  Note that packages may be stored in one of several package repositories.  The most popular are Bioconductor, github, and CRAN.  For Bioconductor packages, for example ```edgeR```, this can be done with the following code:
@@ -337,7 +339,7 @@ cts <- apply(counts(eset.hvg[,which.neur]),2,function(x) {storage.mode(x) <- 'in
 
 With the SCDE inputs prepared, we're ready to fit the SCDE models for these genes. To do so, we first use the ```scde.error.models``` function to fit the cell-specific error models. These error models are then used as input to fit the models for the prior distributions of gene expression magnitude using the ```scde.expression.prior``` function.  Then, both the error models and prior are used as input to the main function ```scde.expression.difference``` function, which performs a test of differential expression for each gene.  The output returns a table that contains the value of the test statistic for each gene, so we'll carry out an additional step to obtain the p-values that correspond to the test statistics.  Note that the columns starting with a 'c' correspond to those that have been corrected for multiple comparisons.  
 
-Note that these model-fitting step can take quite some time, since an individual error model is fit for each cell in the dataset, and pairs of cells are compared to one another in order to estimate the parameters of the fit.  For the purposes of this workshop, the error models object has been precomputed (If you are using the RStudio Server instance, simply load the scde.results.RData file.  If you are using your own machine, you must first download this object from the GitHub page for this vignette - [https://github.com/kdkorthauer/FestivalWorkshopVignettes](https://github.com/kdkorthauer/FestivalWorkshopVignettes) and then save it to your R sessions current working directory).  
+Note that these model-fitting step can take quite some time, since an individual error model is fit for each cell in the dataset, and pairs of cells are compared to one another in order to estimate the parameters of the fit.  For the purposes of this workshop, the error models object has been precomputed (If you are using the RStudio Server instance, simply load the scde.results.RData file.  If you are using your own machine, you must first download this object from the GitHub page for this vignette - [https://raw.githubusercontent.com/kdkorthauer/FestivalWorkshopVignettes/master/scde.results.RData](https://raw.githubusercontent.com/kdkorthauer/FestivalWorkshopVignettes/master/scde.results.RData) and then save it to your R sessions current working directory).  
 
 ```{r scde fit, eval=TRUE, echo=TRUE }
 # fit error models using the scde.error.models function (the following steps have already been run in the interest of time - it is computationally intensive)
@@ -398,24 +400,126 @@ scde.test.gene.expression.difference("Rgs17", models = err.mod, counts = cts, pr
 
 # reset plot window
 dev.off()
+```
 
-# remove the cts matrix to free up memory
-rm(cts)
+Finally, we'll create a heatmap plot to visualize how the overall expression of differentially expressed genes found by SCDE are associated with neuronal subtype.
+
+```{r heatmap scde, eval=TRUE, echo=TRUE}
+# extract matrix of hvg expression for plotting
+m <- exprs(eset)[rownames(eset) %in% rownames(exp.diff[exp.diff$cPval < 0.05,]), colnames(eset) %in% names(group)]
+
+# plot heatmap 
+library(RColorBrewer)
+heatmap(m/apply(m,1,max),zlim=c(0,1),labCol=NA, col=brewer.pal(9,"YlOrRd"),
+        scale="none",ColSideColors=rainbow(2)[as.numeric(as.factor(group))])
+par(lend = 1)           # square line ends for the color legend
+legend("topleft", inset=-0.04,
+    legend = unique(group),
+    col = rainbow(2)[as.numeric(as.factor(unique(group)))],
+    lty= 1, lwd = 5, cex=0.6
+)
 ```
 
 Next we'll explore the method ```scDD``` which also compares expression between groups of cells, but aims to detect differences in expression patterns that may be more complex than an overall magnitude change (or mean shift).  Specifically, cells within each group may be captured at different expression states, as may happen if a gene is oscillatory, or if it exhibits stochastic, "bursty" expression dynamics.  ```scDD``` can detect if these types of complex patterns differ across cell groups. 
 
-```{r scdd, eval = TRUE, echo = TRUE}
+Our aim is two-fold: (1) to detect which genes have different expression distributions between the two neuronal subtypes and (2) to classify those differences into informative patterns. Note that in (1) we explicitly say differences in ’distributions’ rather than differences in ’average’, which would correspond to traditional DE (differential expression) analysis in bulk RNA-seq. By examining the entire distribution, we are able to detect more subtle differences as well as describe complex patterns, such as the existence of subgroups of cells within and across condition that express a given gene at a different level.
+
+First, we construct an ```ExpressionSet``` object that contains our count data and cell metadata for input to ```scDD```.  Note that this is very similar to the ```SCESet``` object class used by ```scater```; that class is based on the ```ExpressionSet``` class.  We'll reuse the ```group``` and ```which.neur``` neuronal subtype vector since they already contain the subset cells we wish to analyze.  Note that scDD expects normalized counts, so we extract them from the ```eset.hvg``` object using the ```exprs``` function.  We'll also create a list of the hyperparameters to use in model-fitting.
+
+```{r scdd setup, eval = TRUE, echo = TRUE}
 library(scDD)
+library(Biobase)
 
-# construct object to send to scDD
+# construct object to send to scDD; we'll reuse group object created for SCDE analysis and create a new (raw-scale) normalized counts matrix
+condition <- as.numeric(as.factor(group))
+names(condition) <- names(group)
+cts <- exp(exprs(eset.hvg[,which.neur])) # scDD requires normalized counts on the raw scale (not logged)
+cts <- cts - min(cts)                    # scran added a pseudocount after normalization; need to keep zero counts as zeroes
+cts[cts < 1e-6] <- 0                     # account for floating point error in estimating psuedocount
+eset.scdd <- ExpressionSet(assayData=cts,
+                     phenoData=as(data.frame(condition), "AnnotatedDataFrame"))
+rm(cts)
 
-# find DE genes between excitatory and inhibitory neuronal subtypes
-
-# find DE genes between neuron and non-neuronal
-
+# Create list of prior parameters for model fitting 
+prior_param=list(alpha=0.01, mu0=0, s0=0.01, a0=0.01, b0=0.01)
 ```
-*TODO: fill out detailed steps of the scDD analysis modules*...
+
+Next, we're ready to use the main function ```scDD``` to detect and classify differentially distributed genes.  In the interest of time, we avoid the computationally intensive permutation testing step and instead use the Kolmogorov-Smirnov test. 
+
+```{r scdd fit, eval=TRUE, echo=TRUE}
+# find DE genes between excitatory and inhibitory neuronal subtypes
+dd.results <- scDD(eset.scdd, prior_param=prior_param, permutations=0, testZeroes=FALSE)
+
+head(dd.results$Genes)
+
+# how many genes were significantly differentially distributed?
+sum(dd.results$Genes$nonzero.pvalue.adj < 0.05)
+
+# what categories to the DD genes belong to?
+table(dd.results$Genes$DDcategory)
+```
+
+We see that the majority of these HVGs are differentially distributed.  Note that we expect to detect more differential genes than with SCDE, since scDD can also detect changes that are more subtle and complex than an overall mean shift.
+
+Let's take a look at the distributions of the two genes we plotted for SCDE.  The *Gad1* gene was detected as significantly differentially distributed, and was categorized as "Differentially Expressed" (difference in overall mean expression between the cell types).  In these plots, the cell type labels have been converted to numeric, but 1=Excitatory and 2=Inhibitory.
+
+```{r scdd gad1, eval=TRUE, echo=TRUE}
+dd.results$Genes[dd.results$Genes$gene == "Gad1",]
+sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Gad1",], phenoData(eset.scdd)$condition,
+            title.gene="Gad1")
+```
+
+The *Rgs17* gene was not differnetially distributed.
+
+```{r scdd Rgs17, eval=TRUE, echo=TRUE}
+dd.results$Genes[dd.results$Genes$gene == "Rgs17",]
+sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Rgs17",], phenoData(eset.scdd)$condition,
+            title.gene="Rgs17")
+```
+
+And to illustrate some of the more complex distributional patterns, we'll take a look at some more differentially distributed genes.  The *Vip* gene was classified as having "differential modality", meaning that two subgroups of cells were detected in the Inhibitory cells and only one of these was detected in the Excitatory cells.
+
+
+```{r scdd Vip, eval=TRUE, echo=TRUE}
+dd.results$Genes[dd.results$Genes$gene == "Vip",]
+sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Vip",], phenoData(eset.scdd)$condition,
+            title.gene="Vip")
+```
+
+The *Pla2g7* gene was classified as having multiple underlying levels of expression in each cell type (multi-modality), however there were a "differential proportion" of excitatory and inhibitory cells belonging to each expression level.  Specifically, more of the inhibitory cells expressed *Pla2g7* at the high expression mode.
+
+```{r scdd Pla2g7, eval=TRUE, echo=TRUE}
+dd.results$Genes[dd.results$Genes$gene == "Pla2g7",]
+sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Pla2g7",], phenoData(eset.scdd)$condition,
+            title.gene="Pla2g7")
+```
+
+Finally, the *Scg2* gene was classified as having both "differential modality" and different overal mean expression level.  Specifically, two subgroups of cells were detected in the excitatory cells and one in the inhibitory, but none of the subgroups overlapped between the cell types.
+
+```{r scdd Scg2, eval=TRUE, echo=TRUE}
+dd.results$Genes[dd.results$Genes$gene == "Scg2",]
+sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Scg2",], phenoData(eset.scdd)$condition,
+            title.gene="Scg2")
+```
+
+Lastly, we'll create a heatmap plot to visualize how the overall expression of differentially distributed genes found by scDD are associated with neuronal subtype.  We'll look at just the "differential modality" genes here.
+
+```{r heatmap DM, eval=TRUE, echo=TRUE}
+# extract matrix of hvg expression for plotting
+DMgenes <- dd.results$Genes$gene[dd.results$Genes$DDcategory == "DM"] 
+m <- exprs(eset)[rownames(eset) %in% DMgenes, colnames(eset) %in% names(group)]
+
+# plot heatmap 
+library(RColorBrewer)
+heatmap(m/apply(m,1,max),zlim=c(0,1),labCol=NA, col=brewer.pal(9,"YlOrRd"),
+        scale="none",ColSideColors=rainbow(2)[as.numeric(as.factor(group))])
+par(lend = 1)           # square line ends for the color legend
+legend("topleft", inset=-0.04,
+    legend = unique(group),
+    col = rainbow(2)[as.numeric(as.factor(unique(group)))],
+    lty= 1, lwd = 5, cex=0.6
+)
+```
 
 ### Order cells by "Psuedotime" (temporal-spatial variation)
 
