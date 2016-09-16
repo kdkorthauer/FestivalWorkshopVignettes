@@ -1,7 +1,4 @@
 # FestivalWorkshopVignettes
 
-Contains vignettes (in development) for the Festival of Genomics California 2016 Single-cell workshop.  Download the SingleCellAnalyses.html file and open in a browser to preview the vignette.  
+Contains vignette (in development) for the Festival of Genomics California 2016 Single-cell workshop. Go to  https://kdkorthauer.github.io/FestivalWorkshopVignettes/ to view the vignette in a browser.  The SingleCellAnalyses.R file contains only the R code from the vignette.  This can be opened in a locally running or the provided Digital Ocean Rstudio session so that participants can follow along.
 
-Note that this html file is not interactive.  Participants will have to copy code over to their locally running RStudio session and modify to make changes and view their results.
-
-We can make another version of this file that does not display the output for use during the live workshop in order to give incentive to follow along (but provide the full version at the end for those who didn't have time to go through everything).
