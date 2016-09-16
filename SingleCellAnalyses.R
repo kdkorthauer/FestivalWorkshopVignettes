@@ -37,7 +37,7 @@ require(scde)         #bioconductor
 require(monocle)      #bioconductor
 require(scran)        #bioconductor
 require(scater)       #bioconductor
-require(Biobase)
+require(Biobase)      #bioconductor
 require(scDD)         #github
 require(ggplot2)      #cran
 require(devtools)     #cran
@@ -75,9 +75,13 @@ plot(counts.pca$rotation[,1], counts.pca$rotation[,2],
       xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$layer_dissectoin))], pch=20,
       main="PCA plot of cells colored by Dissection Layer")
 
+rm(gene.var, counts.pca, counts.top100)  # clean up workspace
+
 ## ----Detection Rate, eval = TRUE, echo = TRUE----------------------------
 detectionRate <- apply(counts, 2, function(x) sum(x > 0) / length(x))
 hist(detectionRate)
+
+rm(detectionRate)  #clean up workspace
 
 ## ----Preprocess, eval = TRUE, echo = TRUE--------------------------------
 library(scater)
@@ -90,7 +94,7 @@ counts.all <- rbind(counts, ercc)  # combine the two into one data.frame
 eset <- newSCESet(countData = counts.all, phenoData = AnnotatedDataFrame(cells))
 isSpike(eset) <- grepl("^ERCC", rownames(eset))  #designate which rows contain spikeins instead of genes (for HVG analysis)
 
-rm(counts); rm(counts.all) # remove counts and counts.all matrices to free up memory (the counts are now stored in the eset object)
+rm(counts, counts.all) # remove counts and counts.all matrices to free up memory (the counts are now stored in the eset object)
 
 ## ----QC, eval=TRUE, echo=TRUE--------------------------------------------
 # QC to compare the level of dropout in endogeneous genes to ERCC spike ins in raw data
@@ -145,6 +149,8 @@ colscale <- c(0,0.25,0.5,0.75,1)
 legend(11.5,40, title="Proportion cells zero", legend=paste0(1-round(quantile(pzero, colscale),2)),
         col=color.gradient(quantile(pzero, colscale)), pch=16)
 
+rm(pzero)    # clean up workspace
+
 ## ----Indentify Variable Genes with spikes, eval=TRUE, echo=TRUE----------
 var.fit.spike <- trendVar(eset, trend="loess", use.spikes=TRUE, span=0.3)
 var.out.spike <- decomposeVar(eset, var.fit.spike)
@@ -181,6 +187,8 @@ points(var.out$mean[top25], var.out$total[top25], col="red4", cex=0.7, pch=15)
 legend(11.5, 40, legend=c("Top 25 HVGs", "Top 1000 HVGs"), pch = c(15, 16), 
        col= c("red4", "darkorange2"), cex=1.1)
 
+rm(var.out, var.out.spike, var.fit, var.fit.spike) # clean up workspace
+
 ## ----heatmap HVG, eval=TRUE, echo=TRUE-----------------------------------
 # extract matrix of hvg expression for plotting
 m <- exprs(eset)[top25,]
@@ -195,6 +203,8 @@ legend("topleft", inset=-0.04,
     col = rainbow(5)[as.numeric(as.factor(unique(phenoData(eset)$major_class)))],
     lty= 1, lwd = 5, cex=0.6
 )
+
+rm(m)  # clean up workspace
 
 ## ----scde prep, eval = TRUE, echo = TRUE---------------------------------
 library(scde)
@@ -276,6 +286,8 @@ legend("topleft", inset=-0.01,
     lty= 1, lwd = 5, cex=0.6
 )
 
+rm(m, exp.diff, err.mod, prior.mod, cts) # clean up workspace
+
 ## ----scdd setup, eval = TRUE, echo = TRUE--------------------------------
 library(scDD)
 library(Biobase)
@@ -288,7 +300,7 @@ cts <- cts - min(cts)                    # scran added a pseudocount after norma
 cts[cts < 1e-6] <- 0                     # account for floating point error in estimating psuedocount
 eset.scdd <- ExpressionSet(assayData=cts,
                      phenoData=as(data.frame(condition), "AnnotatedDataFrame"))
-rm(cts)
+rm(cts) # clean up workspace
 
 # Create list of prior parameters for model fitting 
 prior_param=list(alpha=0.01, mu0=0, s0=0.01, a0=0.01, b0=0.01)
@@ -346,6 +358,8 @@ legend("topleft", inset=-0.01,
     lty= 1, lwd = 5, cex=0.6
 )
 
+rm(m, eset.scdd, dd.results)  # clean up workspace
+
 ## ----Monocle Object, eval = TRUE, echo = TRUE----------------------------
 library(monocle)
 # construct a CellDataSet object with our SCESet object that contains only the top 2000 highly variable genes
@@ -368,6 +382,8 @@ cset.excitatory <- cset[,phenoData(cset)$major_class=="Excitatory" &
 cset.excitatory <- setOrderingFilter(cset.excitatory, ordering_genes=rownames(cset.excitatory)[1:100])
 cset.excitatory <- reduceDimension(cset.excitatory, use_irlba = FALSE) # Reduce dimensionality
 cset.excitatory <- orderCells(cset.excitatory, num_paths = 1, reverse = FALSE) # Order cells
+
+rm(cset) # clean up workspace
 
 ## ----Pseudotime plotting, eval = TRUE, echo = TRUE-----------------------
 # plotting by various factors
