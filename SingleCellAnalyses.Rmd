@@ -1,7 +1,7 @@
 ---
 title: "Dismantling the bulk: examining neuronal heterogeneity using single-cell techniques"
 author: Sara Linker, Apua Paquola, Roger Lasken, and Keegan Korthauer
-date: 9/6/2016
+date: 9/15/2016
 output: html_document
 ---
 
@@ -14,13 +14,13 @@ knitr::opts_knit$set(root.dir="~/FestivalWorkshopSC/BrainAtlas")
 
 ### Welcome to the Festival of Genomics workshop on single-cell analyses
 
-This is an R Markdown document that contains instructions and code for the examples used in todays workshop.  The first few steps will check that you have all the packages and data files necessary to carry out all of the analyses.
+This is an R Markdown document that contains instructions and code for the examples used in today's workshop.  The first few steps will check that you have all the packages and data files necessary to carry out all of the analyses.
 
 # Hour 1: Getting Started
 Sara's section
 ...
 
-### Check that the Brain Atlas data files are present
+## Check that the Brain Atlas data files are present
 
 The following code chunk assumes that Brain Atlas files have been downloaded and placed in the "BrainAtlas" subdirectory of a folder in your home directory entitled "FestivalWorkshopSC".  If you have downloaded these files to another location, either create a new folder and move the files there, or substitute the file path to where they are currently located for "~/FestivalWorkshopSC/BrainAtlas".  If you are using the RStudio Server instance provided by the workshop, change the first line that follows to `setwd("/home/FestivalWorkshopSC/BrainAtlas")`
 
@@ -34,7 +34,7 @@ file.exists("README.txt")
 
 If any of the preceding lines return `FALSE`, double check that you have set the correct working directory and that all download files have been placed in that folder.  If they are missing, you can download the files [here](http://casestudies.brain-map.org/celltax/download_archive).  Note that there will be more files than listed here (including alternate gene count quantifications, and metadata about data-driven cluster memberships as discussed in the paper ["Adult mouse cortical cell taxonomy revealed by single cell transcriptomics"](http://www.nature.com/neuro/journal/v19/n2/full/nn.4216.html)), but these are the ones we will make use of.
 
-### Read the Brain Atlas data files into R
+## Read the Brain Atlas data files into R
 
 The `read.csv` function in R is useful for reading in .csv (comma-separated value) files.  First, we'll read in the main data file `genes_counts.csv` to a data frame using this function and check its contents.  The extra arguments to this function help to format our object so that we have row and column names, and we use character variables instead of converting to factors.  For more details on these arguments, you can type `help(read.csv)`.  In the resulting `coutns` object, we have genes in rows (24057) and cells in columns (1679).
 
@@ -69,7 +69,7 @@ More detailed information about the files downloaded from the Allen Brain Atlas 
 head README.txt
 ```
 
-### Check that the desired R packages have been installed
+## Check that the desired R packages have been installed
 
 Once a list of desired R packages is finalized, can check that they are installed with 
 
@@ -78,7 +78,7 @@ require(scde)         #bioconductor
 require(monocle)      #bioconductor
 require(scran)        #bioconductor
 require(scater)       #bioconductor
-require(Biobase)
+require(Biobase)      #bioconductor
 require(scDD)         #github
 require(ggplot2)      #cran
 require(devtools)     #cran
@@ -105,7 +105,7 @@ install.packages("devtools")
 devtools::install_github("kdkorthauer/scDD")
 ```
 
-### Visualize major axes of variation in a PCA plot
+## Visualize major axes of variation in a PCA plot
 
 ```{r PCA, eval = TRUE, echo = TRUE}
 # extract top 1000 variable genes
@@ -133,11 +133,11 @@ plot(counts.pca$rotation[,1], counts.pca$rotation[,2],
 Apua's Section 
 ...
 
-### Normalization
+## Normalization
 
 ...
 
-### Quality Control (QC measures)
+## Quality Control (QC measures)
 
 ```{r Detection Rate, eval = TRUE, echo = TRUE}
 detectionRate <- apply(counts, 2, function(x) sum(x > 0) / length(x))
@@ -151,7 +151,7 @@ hist(detectionRate)
 Keegan's Section
 ...
 
-### Identify the highly variable genes
+## Identify the highly variable genes
 
 In this module, we will identify genes that are highly variable across the entire cell population.  This will give us a subset of genes to focus on that is likely enriched for those that are driving heterogeneity among cellular subtypes.  
 
@@ -311,11 +311,15 @@ legend("topleft", inset=-0.04,
 )
 ```
 
-### Identify differentially expressed genes
+## Identify Differentially Expressed genes
 
-In this module we will identify differentially expressed genes between neuronal subtypes, as well as between neurons and non-neuronal cell types.  As we have learned in this workshop, though scRNA-seq data shares many characteristics with bulk RNA-seq data, there are major differences which need to be accommodated in order to properly analyze it and fully exploit its advantages (namely the presence of dropouts, or zeroes, and increased heterogeneity from a combination of technical and biological sources).  First we will explore the method ```SCDE``` which compares expression magnitude between groups of cells while adjusting for drop-out and amplification biases in expression magnitude by fitting error models for individual cells.  
+In this module we will identify differentially expressed genes between neuronal subtypes, as well as between neurons and non-neuronal cell types.  As we have learned in this workshop, though scRNA-seq data shares many characteristics with bulk RNA-seq data, there are major differences which need to be accommodated in order to properly analyze it and fully exploit its advantages (namely the presence of dropouts, or zeroes, and increased heterogeneity from a combination of technical and biological sources).  
 
-After loading the SCDE package, we'll create a vector of indices to indicate which cells we will analyze. In the interest of minimizing computation time during this workshop, we'll only assess the top 1000 highly variable genes for differential expression (these are contained in the ```eset.hvg``` SCESet object).  In addition, some of the SCDE output has been precomputed for you since the method is computationally intensive with a large number of cells (over 1000).  To complete the rest of the module, you'll need to download this results object from GitHub if you are not using one of the server instances (where it will be preloaded) - see the instructions below.
+### Part 1: SCDE
+
+First we will explore the method ```SCDE``` which compares expression magnitude between groups of cells while adjusting for drop-out and amplification biases in expression magnitude by fitting error models for individual cells.  
+
+After loading the SCDE package, we'll create a vector of indices to indicate which cells we will analyze. In the interest of minimizing computation time during this workshop, we'll only assess the top 1000 highly variable genes for differential expression (these are contained in the ```eset.hvg``` SCESet object).  In addition, some of the SCDE output has been precomputed for you since the method is computationally intensive with a large number of cells (over 1000).  To complete the rest of the module, you'll need to download this results object from GitHub if you are not using one of the server instances (where it is preloaded) - see the instructions below.
 
 We'll first create a vector that indicates which of the cells have been classified as neurons.  This will be used to subset the SCESet to contain only these cells.  Then we'll reduce this indicator vector to only contain a random sample of 100 cells of each neuron subtype.  We'll also create a ```group``` factor variable that indicates which type of neuron each cell is classified as (inhibitory or exitatory).  Finally, since SCDE requires raw (unnormalized) integer count data as input, we'll extract the raw counts matrix from the subsetted SCESet object and change their class from numeric to integer. 
 
@@ -339,7 +343,7 @@ cts <- apply(counts(eset.hvg[,which.neur]),2,function(x) {storage.mode(x) <- 'in
 
 With the SCDE inputs prepared, we're ready to fit the SCDE models for these genes. To do so, we first use the ```scde.error.models``` function to fit the cell-specific error models. These error models are then used as input to fit the models for the prior distributions of gene expression magnitude using the ```scde.expression.prior``` function.  Then, both the error models and prior are used as input to the main function ```scde.expression.difference``` function, which performs a test of differential expression for each gene.  The output returns a table that contains the value of the test statistic for each gene, so we'll carry out an additional step to obtain the p-values that correspond to the test statistics.  Note that the columns starting with a 'c' correspond to those that have been corrected for multiple comparisons.  
 
-Note that these model-fitting step can take quite some time, since an individual error model is fit for each cell in the dataset, and pairs of cells are compared to one another in order to estimate the parameters of the fit.  For the purposes of this workshop, the error models object has been precomputed (If you are using the RStudio Server instance, simply load the scde.results.RData file.  If you are using your own machine, you must first download this object from the GitHub page for this vignette - [https://raw.githubusercontent.com/kdkorthauer/FestivalWorkshopVignettes/master/scde.results.RData](https://raw.githubusercontent.com/kdkorthauer/FestivalWorkshopVignettes/master/scde.results.RData) and then save it to your R sessions current working directory).  
+Note that these model-fitting step can take quite some time, since an individual error model is fit for each cell in the dataset, and pairs of cells are compared to one another in order to estimate the parameters of the fit.  For the purposes of this workshop, the error models object has been precomputed (If you are using the RStudio Server instance, simply load the scde.results.RData file.  If you are using your own machine, you must first download this object from the GitHub page for this vignette - [https://raw.githubusercontent.com/kdkorthauer/FestivalWorkshopVignettes/master/scde.results.RData](https://raw.githubusercontent.com/kdkorthauer/FestivalWorkshopVignettes/master/scde.results.RData) and then save it to your R session's current working directory).  
 
 ```{r scde fit, eval=TRUE, echo=TRUE }
 # fit error models using the scde.error.models function (the following steps have already been run in the interest of time - it is computationally intensive)
@@ -413,12 +417,14 @@ library(RColorBrewer)
 heatmap(m/apply(m,1,max),zlim=c(0,1),labCol=NA, col=brewer.pal(9,"YlOrRd"),
         scale="none",ColSideColors=rainbow(2)[as.numeric(as.factor(group))])
 par(lend = 1)           # square line ends for the color legend
-legend("topleft", inset=-0.04,
+legend("topleft", inset=-0.01,
     legend = unique(group),
     col = rainbow(2)[as.numeric(as.factor(unique(group)))],
     lty= 1, lwd = 5, cex=0.6
 )
 ```
+
+### Part 2: scDD
 
 Next we'll explore the method ```scDD``` which also compares expression between groups of cells, but aims to detect differences in expression patterns that may be more complex than an overall magnitude change (or mean shift).  Specifically, cells within each group may be captured at different expression states, as may happen if a gene is oscillatory, or if it exhibits stochastic, "bursty" expression dynamics.  ```scDD``` can detect if these types of complex patterns differ across cell groups. 
 
@@ -469,7 +475,7 @@ sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Gad1",], phenoData(eset.scd
             title.gene="Gad1")
 ```
 
-The *Rgs17* gene was not differnetially distributed.
+The *Rgs17* gene was not differentially distributed.
 
 ```{r scdd Rgs17, eval=TRUE, echo=TRUE}
 dd.results$Genes[dd.results$Genes$gene == "Rgs17",]
@@ -514,16 +520,16 @@ library(RColorBrewer)
 heatmap(m/apply(m,1,max),zlim=c(0,1),labCol=NA, col=brewer.pal(9,"YlOrRd"),
         scale="none",ColSideColors=rainbow(2)[as.numeric(as.factor(group))])
 par(lend = 1)           # square line ends for the color legend
-legend("topleft", inset=-0.04,
+legend("topleft", inset=-0.01,
     legend = unique(group),
     col = rainbow(2)[as.numeric(as.factor(unique(group)))],
     lty= 1, lwd = 5, cex=0.6
 )
 ```
 
-### Order cells by "Psuedotime" (temporal-spatial variation)
+## Order cells by "Psuedotime" (temporal-spatial variation): Monocle
 
-Just like we saw in the Highly Variable Genes module, it can be convenient to store all information about an experiment (measurements *and* metadata) in one R object.  This is a recurring theme in the Bioconductor project, so many R packages on Bioconductor rely on constructs like these.  The benefits are gains in efficiency and reduction of errors in associating metadata objects back to the measurement objects, and often many package developers use objects that are compatible across several methods.  However, with the explosion in methods development for scRNA-seq analysis, we have not yet established a 'standard' object type for storing and analysing scRNA-seq data in R.  The result is that packages developed simulataneously and independently have slightly different formatting requirements.  So long story short, we have to convert our ```SCESet``` object from the ```scater``` package to a similar ```CellDataSet``` object for use with the ```monocle``` package.  Don't worry about the details here.
+Just like we saw in the previous two modules, it can be convenient to store all information about an experiment (measurements *and* metadata) in one R object.  This is a recurring theme in the Bioconductor project, so many R packages on Bioconductor rely on constructs like these.  The benefits are gains in efficiency and reduction of errors in associating metadata objects back to the measurement objects, and often many package developers use objects that are compatible across several methods.  However, with the explosion in methods development for scRNA-seq analysis, we have not yet established a 'standard' object type for storing and analysing scRNA-seq data in R.  The result is that packages developed simulataneously and independently have slightly different formatting requirements.  So long story short, we have to convert our ```SCESet``` object from the ```scater``` package to a similar ```CellDataSet``` object for use with the ```monocle``` package.  Don't worry about the details here.
 
 Our goal in this analysis module is to discover a latent trajectory of variation using ```Monocle``` which may represent spatial organization of the cells.  Since it is recommended to use genes that are believed to be important in determining where cells are located in relation to eachother (the 'ordering'), we use the dataset that only contains the top 2000 highly variable genes that we constructed a previous analysis module.  
 
@@ -556,7 +562,7 @@ cset.excitatory <- reduceDimension(cset.excitatory, use_irlba = FALSE) # Reduce 
 cset.excitatory <- orderCells(cset.excitatory, num_paths = 1, reverse = FALSE) # Order cells
 ```
 
-Next we plot the spanning tree to visualize the cell ordering projected on the first two components of variation.  We color the cells in this space by dissection layer see if we have recovered any of the spatial structure of the cortical layers.  We also color the cells by Cre reporter line.  Did we recover any spatial organization in these two subsets?  Does there seem to be variation by Cre reporter?
+Next we plot the spanning tree to visualize the cell ordering projected on the first two components of variation.  We color the cells in this space by dissection layer see if we have recovered any of the spatial structure of the cortical layers.  We also color the cells by Cre reporter line.  Did we recover any spatial organization in these two subsets?  Does there seem to be variation by Cre reporter?  
 
 ```{r Pseudotime plotting, eval = TRUE, echo = TRUE}
 # plotting by various factors
@@ -568,9 +574,11 @@ plot_spanning_tree(cset.excitatory, color_by="layer_dissectoin") # plot spanning
 plot_spanning_tree(cset.excitatory, color_by="cre") # plot spanning tree
 ```
 
-How does the spanning tree change if we allow a different number of paths?  How does the spanning tree change if we include different gene sets?
+The spanning trees above suggest that the Cre reporter line explains more of the variation among the Inhibitory cells than does the spatial information (lower versus upper layer).  Is the same true for the Exitatory cells?
 
-### R Session information:
+How does the spanning tree change if we allow a different number of paths?  How does the spanning tree change if we include different gene sets?  
+
+## R Session information:
 
 ```{r sesh, eval=TRUE, echo=TRUE}
 sessionInfo()
