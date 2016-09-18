@@ -16,9 +16,7 @@ knitr::opts_knit$set(root.dir="~/FestivalWorkshopSC/BrainAtlas")
 
 This is an R Markdown document that contains instructions and code for the examples used in today's workshop.  The first few steps will check that you have all the packages and data files necessary to carry out all of the analyses.
 
-# Hour 1: Getting Started
-Sara's section
-...
+# Hour I: Getting Started
 
 ## Check that the Brain Atlas data files are present
 
@@ -135,7 +133,7 @@ plot(counts.pca$rotation[,1], counts.pca$rotation[,2],
 rm(gene.var, counts.pca, counts.top1000); gc()  # clean up workspace
 ```
 
-# Hour 2: Normalization and Quality Control of scRNA-seq
+# Hour II: Normalization and Quality Control of scRNA-seq
 Apua's Section 
 ...
 
@@ -154,12 +152,9 @@ rm(detectionRate); gc()  #clean up workspace
 
 ...
 
-# Hour 3: Analysis Modules
+# Hour III: Analysis Modules
 
-Keegan's Section
-...
-
-## Identify the highly variable genes
+## Module 1: Identify the highly variable genes
 
 In this module, we will identify genes that are highly variable across the entire cell population.  This will give us a subset of genes to focus on that is likely enriched for those that are driving heterogeneity among cellular subtypes.  
 
@@ -322,7 +317,7 @@ legend("topleft", inset=-0.04,
 rm(eset, m)  # clean up workspace
 ```
 
-## Identify Differentially Expressed genes
+## Module 2: Identify Differentially Expressed genes
 
 In this module we will identify differentially expressed genes between neuronal subtypes, as well as between neurons and non-neuronal cell types.  As we have learned in this workshop, though scRNA-seq data shares many characteristics with bulk RNA-seq data, there are major differences which need to be accommodated in order to properly analyze it and fully exploit its advantages (namely the presence of dropouts, or zeroes, and increased heterogeneity from a combination of technical and biological sources).  
 
@@ -476,6 +471,7 @@ Next, we're ready to use the main function ```scDD``` to detect and classify dif
 
 ```{r scdd fit, eval=TRUE, echo=TRUE}
 # find DE genes between excitatory and inhibitory neuronal subtypes
+set.seed(6767) # set random seed for reprodicbility
 dd.results <- scDD(eset.scdd, prior_param=prior_param, permutations=0, testZeroes=FALSE)
 
 head(dd.results$Genes)
@@ -551,7 +547,7 @@ legend("topleft", inset=-0.01,
 rm(m, eset.scdd, dd.results)  # clean up workspace
 ```
 
-## Order cells by "Psuedotime" (temporal-spatial variation): Monocle
+## Module 3: Order cells by "Psuedotime" (temporal-spatial variation): Monocle
 
 Just like we saw in the previous two modules, it can be convenient to store all information about an experiment (measurements *and* metadata) in one R object.  This is a recurring theme in the Bioconductor project, so many R packages on Bioconductor rely on constructs like these.  The benefits are gains in efficiency and reduction of errors in associating metadata objects back to the measurement objects, and often many package developers use objects that are compatible across several methods.  However, with the explosion in methods development for scRNA-seq analysis, we have not yet established a 'standard' object type for storing and analysing scRNA-seq data in R.  The result is that packages developed simulataneously and independently have slightly different formatting requirements (as we have seen in the packages we've used today).  So long story short, we have to convert our ```SCESet``` object from the ```scater``` package to a similar ```CellDataSet``` object for use with the ```monocle``` package.  Don't worry about the details here.
 
