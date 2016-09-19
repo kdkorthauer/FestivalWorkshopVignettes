@@ -1,7 +1,7 @@
 ---
 title: "Dismantling the bulk: examining neuronal heterogeneity using single-cell techniques"
 author: Sara Linker, Apua Paquola, Roger Lasken, and Keegan Korthauer
-date: 9/15/2016
+date: 9/19/2016
 output: html_document
 ---
 
@@ -15,7 +15,6 @@ knitr::opts_knit$set(root.dir="~/FestivalWorkshopSC/BrainAtlas")
 ### Welcome to the Festival of Genomics workshop on single-cell analyses
 
 This is an R Markdown document that contains instructions and code for the examples used in today's workshop.  The first few steps will check that you have all the packages and data files necessary to carry out all of the analyses.  If you are running these analyses on your own machine (not on the RStudio Server instance provided), you will need to have the latest version of R installed (3.3.1, [download here](https://cran.r-project.org/mirrors.html)) and RStudio is also recommended ([download here](https://www.rstudio.com/products/rstudio/)). 
-
 
 # Hour I: Getting Started
 
@@ -196,7 +195,6 @@ rm(gene.var, rpkm.pca, rpkm.top1000, rpkm); gc()  # clean up workspace
 Apua's Section 
 
 ## Normalization
-
 In the previous section we used data that have been normalized by RPKM.  It is vital that the RNA-seq counts be normalized to ensure that differences found are not due to things like sequencing depth, library preparation, or batch effects.  Since scRNA-seq data exhibits much more technical variablity and much lower detection rate than bulk RNA-seq, new specialized normalization methods have been developed.  Here we wil use the pool & deconvolve normalization method of Lun et al. (2016) to adjust for library size.
 
 But first, for ease in downstream analysis with various R packages we'll make use of today, we'll convert the data.frames that currently (separately) house the counts and cell metadata into a Bioconductor object called an SCESet introduced by the ```scater``` package.  This object is a container that can hold raw and normalized expression values, along with the metadata for both samples and genes, in one place. 
@@ -249,7 +247,6 @@ plot(sizeFactors(eset), colSums(counts(eset))/1e6, log="xy",
     ylab="Library Size (Total Counts in Millions)", xlab="Pooled Size Factor Estimate",
     main="Normalization factor versus library size")
 ```
-
 
 ## Quality Control (QC measures)
 
