@@ -36,11 +36,15 @@ If any of the preceding lines return `FALSE`, double check that you have set the
 
 ## Read the Brain Atlas data files into R
 
-The `read.csv` function in R is useful for reading in .csv (comma-separated value) files.  First, we'll read in the main data file `genes_counts.csv` to a data frame using this function and check its contents.  The extra arguments to this function help to format our object so that we have row and column names, and we use character variables instead of converting to factors.  For more details on these arguments, you can type `help(read.csv)`.  In the resulting `coutns` object, we have genes in rows (24057) and cells in columns (1679).
+The `read.csv` function in R is useful for reading in .csv (comma-separated value) files.  First, we'll read in the main data file `genes_counts.csv` to a data frame using this function and check its contents.  The extra arguments to this function help to format our object so that we have row and column names, and we use character variables instead of converting to factors.  For more details on these arguments, you can type `help(read.csv)`.  In the resulting `counts` object, we have genes in rows (24057) and cells in columns (1679). We will also import the corresponding RPKM normalized data from `genes_rpkm.csv`
 
-```{r Read in Counts, eval=TRUE, echo=TRUE}
+```{r Read in Counts and RPKM, eval=TRUE, echo=TRUE}
 counts <- read.csv("genes_counts.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
-str(counts[,1:20]) # restrict to the first 20 columns (cells) 
+str(counts[,1:20]) # restrict to the first 20 columns (cells)
+
+rpkm.raw <- read.csv("genes_rpkm.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
+str(rpkm.raw[,1:20]) # restrict to the first 20 columns (cells) 
+rpkm <- log(rpkm + 1, 2)
 ```
 
 The `cell_metadata.csv` file contains 1679 rows (one for each cell) and columns containing information such as collection date, sequencing type, total reads, mapping percentage, dissection layer, and major/minor derived cell subtypes. 
@@ -109,30 +113,39 @@ install.packages("devtools")
 devtools::install_github("kdkorthauer/scDD")
 ```
 
+Let's take a quick look at our data to get a feel for what we're working with
+
+```{r examine data, echo=TRUE, eval = FALSE}
+dim(rpkm)
+dim(counts)
+```
+
+
+
 ## Visualize major axes of variation in a PCA plot
 
 ```{r PCA, eval = TRUE, echo = TRUE}
 # extract top 1000 variable genes
-gene.var <- apply(counts, 1, function(x) var(log(x[x>0])))
-counts.top1000 <- counts[which(rank(-gene.var)<=1000),]
+gene.var <- apply(rpkm, 1, function(x) var(x[x>0]))
+rpkm.top1000 <- rpkm[which(rank(-gene.var)<=1000),]
 
-counts.pca <- prcomp(log(counts.top1000+1),
+rpkm.pca <- prcomp(rpkm.top1000),
                    center = TRUE,
                    scale. = TRUE) 
-summary(counts.pca)$importance[,1:5]
-plot(counts.pca, type="l", main="Top 10 PCs")
+summary(rpkm.pca)$importance[,1:5]
+plot(rpkm.pca, type="l", main="Top 10 PCs")
 
 color_class <- rainbow(length(unique(cells$major_class)))
-plot(counts.pca$rotation[,1], counts.pca$rotation[,2], 
+plot(rpkm.pca$rotation[,1], rpkm.pca$rotation[,2], 
       xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$major_class))], pch=20,
       main="PCA plot of cells colored by Major Class")
 
 color_class <- rainbow(length(unique(cells$layer_dissectoin)))
-plot(counts.pca$rotation[,1], counts.pca$rotation[,2], 
+plot(rpkm.pca$rotation[,1], rpkm.pca$rotation[,2], 
       xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$layer_dissectoin))], pch=20,
       main="PCA plot of cells colored by Dissection Layer")
 
-rm(gene.var, counts.pca, counts.top1000); gc()  # clean up workspace
+rm(gene.var, rpkm.pca, rpkm.top1000); gc()  # clean up workspace
 ```
 
 # Hour 2: Normalization and Quality Control of scRNA-seq
