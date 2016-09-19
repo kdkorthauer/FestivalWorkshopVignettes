@@ -42,9 +42,9 @@ The `read.csv` function in R is useful for reading in .csv (comma-separated valu
 counts <- read.csv("genes_counts.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
 str(counts[,1:20]) # restrict to the first 20 columns (cells)
 
-rpkm.raw <- read.csv("genes_rpkm.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
-str(rpkm.raw[,1:20]) # restrict to the first 20 columns (cells) 
-rpkm <- log(rpkm + 1, 2)
+rpkm <- read.csv("genes_rpkm.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
+str(rpkm[,1:20]) # restrict to the first 20 columns (cells) 
+rpkm <- log(rpkm + 1, 2) # put on the log scale
 ```
 
 The `cell_metadata.csv` file contains 1679 rows (one for each cell) and columns containing information such as collection date, sequencing type, total reads, mapping percentage, dissection layer, and major/minor derived cell subtypes. 
@@ -131,12 +131,12 @@ head(colnames(counts))
 
 ```
 Although they contain the same basic information. The two datasets, counts and rpkm, are distributed very differently
-```
+```{r hist counts, eval=TRUE, echo=TRUE}
 hist(as.vector(as.matrix(counts)))
 hist(as.vector(as.matrix(rpkm)))
 ```
 Now let's take a look at the metadata
-```
+```{r table metadata, eval=TRUE, echo=TRUE}
 #There is a row for each column in the gene expression matrices
 dim(cells)
 #Each column represents a different variable associated with the dataset
@@ -189,35 +189,17 @@ ggplot(df, aes(PC1, PC2, colour = cre))+
   geom_point()+
   labs(title = "PCA plot of cells colored by Cre reporter")
   
-rm(gene.var, rpkm.pca, rpkm.top1000, df); gc()  # clean up workspace
+rm(gene.var, rpkm.pca, rpkm.top1000, rpkm); gc()  # clean up workspace
 ```
 
 # Hour II: Normalization and Quality Control of scRNA-seq
 Apua's Section 
-...
 
 ## Normalization
 
-...
+In the previous section we used data that have been normalized by RPKM.  It is vital that the RNA-seq counts be normalized to ensure that differences found are not due to things like sequencing depth, library preparation, or batch effects.  Since scRNA-seq data exhibits much more technical variablity and much lower detection rate than bulk RNA-seq, new specialized normalization methods have been developed.  Here we wil use the pool & deconvolve normalization method of Lun et al. (2016) to adjust for library size.
 
-## Quality Control (QC measures)
-
-```{r Detection Rate, eval = TRUE, echo = TRUE}
-detectionRate <- apply(counts, 2, function(x) sum(x > 0) / length(x))
-hist(detectionRate)
-
-rm(detectionRate); gc()  #clean up workspace
-```
-
-...
-
-# Hour III: Analysis Modules
-
-## Module 1: Identify the highly variable genes
-
-In this module, we will identify genes that are highly variable across the entire cell population.  This will give us a subset of genes to focus on that is likely enriched for those that are driving heterogeneity among cellular subtypes.  
-
-For ease in downstream analysis with various R packages we'll make use of today, we'll convert the data.frames that currently (separately) house the counts and cell metadata into a Bioconductor object called an SCESet introduced by the ```scater``` package.  This object is a container that can hold raw and normalized expression values, along with the metadata for both samples and genes, in one place. 
+But first, for ease in downstream analysis with various R packages we'll make use of today, we'll convert the data.frames that currently (separately) house the counts and cell metadata into a Bioconductor object called an SCESet introduced by the ```scater``` package.  This object is a container that can hold raw and normalized expression values, along with the metadata for both samples and genes, in one place. 
 
 ```{r Preprocess, eval = TRUE, echo = TRUE}
 library(scater)
@@ -231,7 +213,7 @@ isSpike(eset) <- grepl("^ERCC", rownames(eset))  #designate which rows contain s
 rm(counts); gc() # remove counts matrix to free up memory (the counts are now stored in the eset object)
 ```
 
-Now that our SCESet has been created, we'll also perform some basic preprocessing and normalization here to adjust for library size using the pool and deconvolve method in the ```scran``` package, as well as remove genes with very low expression (** these steps may not be necessary if this was already carried out in Apua's section... Can refer back to the section or move/remove if it is redundant **).
+Now that our SCESet has been created, we'll perform some basic preprocessing and normalization here to adjust for library size using the pool and deconvolve method in the ```scran``` package, as well as remove genes with very low expression.
 
 ```{r QC, eval=TRUE, echo=TRUE}
 # QC to compare the level of dropout in endogeneous genes to ERCC spike ins in raw data
@@ -268,7 +250,29 @@ plot(sizeFactors(eset), colSums(counts(eset))/1e6, log="xy",
     main="Normalization factor versus library size")
 ```
 
-Next, we'll perform some calculations to help us identify genes that have high variability.  To do so, we have to take into account the relationship between mean expression level and variance of expression level.  Namely, that what we observe in RNA-seq count data is that genes with higher expression have higher variance.  Note that for data on the log-scale, the trend is reverse (variance of log-expression decreases for higher mean log-expression genes).  As an aside, note that this is an expected property of count distributions, but often biological data exhibit even more variation than expected (this is commonly referred to as overdispersion in the literature).  This complex relationship between the mean and variance can be explained with the Negative Binomial distribution, which is often used to model count data from RNA-seq experiments.  In this module we are not going to assume any parametric distribution to relate the mean and variance, but instead fit a smooth curve to the mean and variance relationship we observe in our dataset.
+
+## Quality Control (QC measures)
+
+One aspect of variation among single cell data is the proportion of genes detected in each cell.  It is thought that this is determined by a combination of biological (gene is off or on) and technical (gene is present but not at a level high enough to be detected by the assay) factors. Teasing this out is still an active and ongoing area of research.  Here we'll take a look at the distribution of the detection rate (proportion of genes detected) across our population of cells, and see how that correlates with the principal components we computed above.
+
+```{r Detection Rate, eval = TRUE, echo = TRUE}
+detectionRate <- apply(counts(eset), 2, function(x) sum(x > 0) / length(x))
+hist(detectionRate)
+
+plot(detectionRate, df$PC1, pch=20, col="grey", ylab="PC 1")
+
+rm(detectionRate, df); gc()  #clean up workspace
+```
+
+There does seem to be an association between PC1 and the detection rate.  Recall that some of this variability will be biological and some will be technical.  Note that some analysts will adjust for this effect in downstream analyses, with the assumption that it is largely technical.  This is also an active area of research.
+
+# Hour III: Analysis Modules
+
+## Module 1: Identify the highly variable genes
+
+In this module, we will identify genes that are highly variable across the entire cell population.  This will give us a subset of genes to focus on that is likely enriched for those that are driving heterogeneity among cellular subtypes.  
+
+Here we will perform some calculations to help us identify genes that have high variability.  To do so, we have to take into account the relationship between mean expression level and variance of expression level.  Namely, that what we observe in RNA-seq count data is that genes with higher expression have higher variance.  Note that for data on the log-scale, the trend is reverse (variance of log-expression decreases for higher mean log-expression genes).  As an aside, note that this is an expected property of count distributions, but often biological data exhibit even more variation than expected (this is commonly referred to as overdispersion in the literature).  This complex relationship between the mean and variance can be explained with the Negative Binomial distribution, which is often used to model count data from RNA-seq experiments.  In this module we are not going to assume any parametric distribution to relate the mean and variance, but instead fit a smooth curve to the mean and variance relationship we observe in our dataset.
 
 We use the ```trendVar``` function of the ```scran``` package to estimate the relationship between the mean and variance. This function fits a smooth type of curve to capture the overall trend in mean log-expression and variance log-expression, which will serve as an estimate of the baseline technical variability if we assume that the majority of the genes are constantly expressed (i.e. that there is no significant biological variability in the majority of genes).  Once this relationship has been estimated, the ```decomposeVar``` (also in the ```scran``` package) essentially removes the estimated technical variability component from the total variability to calculate the estimated biological variability.  This is what we aim to use to find the highly variable genes.  We also visualize the mean and variance log-expression relationship, along with the estimated technical variabilty fit.  
 
