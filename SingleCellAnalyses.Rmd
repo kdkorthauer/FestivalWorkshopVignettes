@@ -28,6 +28,7 @@ The following code chunk assumes that Brain Atlas files have been downloaded and
 setwd("~/FestivalWorkshopSC/BrainAtlas")
 file.exists("cell_metadata.csv")
 file.exists("genes_counts.csv")
+file.exists("genes_rpkm.csv")
 file.exists("ercc_counts.csv")
 file.exists("README.txt")
 ```
