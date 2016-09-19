@@ -113,14 +113,34 @@ install.packages("devtools")
 devtools::install_github("kdkorthauer/scDD")
 ```
 
-Let's take a quick look at our data to get a feel for what we're working with
+## Explore the data
+Let's take a quick peek at what our data looks like to get a handle on the information it contains
 
 ```{r examine data, echo=TRUE, eval = FALSE}
+# Take the dimensions of the count and normalized objects
 dim(rpkm)
 dim(counts)
+
+#both objects contain the same genes in the same order
+head(rownames(rpkm))
+head(rownames(counts))
+
+#as well as the same samples in the same order
+head(colnames(rpkm))
+head(colnames(counts))
+
 ```
+Although they contain the same basic information. The two datasets, counts and rpkm, are distributed very differently
 
-
+```
+hist(as.vector(as.matrix(counts)))
+hist(as.vector(as.matrix(rpkm)))
+```
+Now let's take a look at the metadata
+```
+#There is a row for each column in the gene expression matrices
+dim(cells)
+```
 
 ## Visualize major axes of variation in a PCA plot
 
