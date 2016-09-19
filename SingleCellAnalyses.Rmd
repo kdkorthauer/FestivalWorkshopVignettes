@@ -252,7 +252,6 @@ plot(sizeFactors(eset), colSums(counts(eset))/1e6, log="xy",
     main="Normalization factor versus library size")
 ```
 
-
 ## Quality Control (QC measures)
 
 One aspect of variation among single cell data is the proportion of genes detected in each cell.  It is thought that this is determined by a combination of biological (gene is off or on) and technical (gene is present but not at a level high enough to be detected by the assay) factors. Teasing this out is still an active and ongoing area of research.  Here we'll take a look at the distribution of the detection rate (proportion of genes detected) across our population of cells, and see how that correlates with the principal components we computed above.

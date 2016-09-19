@@ -8,12 +8,17 @@ knitr::opts_knit$set(root.dir="~/FestivalWorkshopSC/BrainAtlas")
 setwd("~/FestivalWorkshopSC/BrainAtlas")
 file.exists("cell_metadata.csv")
 file.exists("genes_counts.csv")
+file.exists("genes_rpkm.csv")
 file.exists("ercc_counts.csv")
 file.exists("README.txt")
 
-## ----Read in Counts, eval=TRUE, echo=TRUE--------------------------------
+## ----Read in Counts and RPKM, eval=TRUE, echo=TRUE-----------------------
 counts <- read.csv("genes_counts.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
-str(counts[,1:20]) # restrict to the first 20 columns (cells) 
+str(counts[,1:20]) # restrict to the first 20 columns (cells)
+
+rpkm <- read.csv("genes_rpkm.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
+str(rpkm[,1:20]) # restrict to the first 20 columns (cells) 
+rpkm <- log(rpkm + 1, 2) # put on the log scale
 
 ## ----Read in Cell Metadata, eval=TRUE, echo=TRUE-------------------------
 cells <- read.csv("cell_metadata.csv", stringsAsFactors = FALSE, header = TRUE)
@@ -26,6 +31,10 @@ str(ercc[,1:20]) # restrict to the first 20 columns (cells)
 # remove the tdTomato row
 whichTomato <- grep("tdTomato", rownames(ercc))
 ercc <- ercc[-whichTomato,]
+
+# combine the counts and erccs into the same data frame
+all.equal(colnames(counts), colnames(ercc)) # check that the cells are in the same order across the two datasets
+counts <- rbind(counts, ercc)  
 
 ## ----Peek at README.txt file, eval=TRUE, echo=TRUE, engine="bash"--------
 # This is a bash command, to be executed at the command line (not within R);
@@ -54,34 +63,73 @@ require(RColorBrewer) #cran
 ## install.packages("devtools")
 ## devtools::install_github("kdkorthauer/scDD")
 
+## ----examine data, echo=TRUE, eval = FALSE-------------------------------
+## # Take the dimensions of the count and normalized objects
+## dim(rpkm)
+## dim(counts)
+## 
+## #both objects contain the same genes in the same order
+## head(rownames(rpkm))
+## head(rownames(counts))
+## 
+## #as well as the same samples in the same order
+## head(colnames(rpkm))
+## head(colnames(counts))
+## 
+
+## ----hist counts, eval=TRUE, echo=TRUE-----------------------------------
+hist(as.vector(as.matrix(counts)))
+hist(as.vector(as.matrix(rpkm)))
+
+## ----table metadata, eval=TRUE, echo=TRUE--------------------------------
+#There is a row for each column in the gene expression matrices
+dim(cells)
+#Each column represents a different variable associated with the dataset
+colnames(cells)
+#For example, the columns cre contains the cre-drivers used. We can see how many cells of each line are present in the dataset
+table(cells$cre)
+barplot(table(cells$cre))
+
 ## ----PCA, eval = TRUE, echo = TRUE---------------------------------------
 # extract top 1000 variable genes
-gene.var <- apply(counts, 1, function(x) var(log(x[x>0])))
-counts.top1000 <- counts[which(rank(-gene.var)<=1000),]
+gene.var <- apply(rpkm, 1, function(x) var(x[x>0]))
+rpkm.top1000 <- rpkm[which(rank(-gene.var)<=1000),]
 
-counts.pca <- prcomp(log(counts.top1000+1),
+rpkm.pca <- prcomp(rpkm.top1000,
                    center = TRUE,
                    scale. = TRUE) 
-summary(counts.pca)$importance[,1:5]
-plot(counts.pca, type="l", main="Top 10 PCs")
+summary(rpkm.pca)$importance[,1:5]
+plot(rpkm.pca, type="l", main="Top 10 PCs")
 
-color_class <- rainbow(length(unique(cells$major_class)))
-plot(counts.pca$rotation[,1], counts.pca$rotation[,2], 
-      xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$major_class))], pch=20,
-      main="PCA plot of cells colored by derived major class")
+#Plot the first PCs
+cells.inform <- cells[,c(2,3,4,7,11,12,14)]
+df <- data.frame(PC1 = rpkm.pca$rotation[,1],
+                 PC2 = rpkm.pca$rotation[,2],
+                 cells.inform
+                )
 
-color_class <- rainbow(length(unique(cells$layer_dissectoin)))
-plot(counts.pca$rotation[,1], counts.pca$rotation[,2], 
-      xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$layer_dissectoin))], pch=20,
-      main="PCA plot of cells colored by Dissection Layer")
+ggplot(df, aes(PC1, PC2, colour = major_class))+
+  geom_point()+
+  labs(title = "PCA plot of cells colored by Major Class")
 
-rm(gene.var, counts.pca, counts.top100)  # clean up workspace
+#it's often advantageous to run a quick association of the top components of variation with your known variables
+#Association with PC1
+model.pc1 <- anova(lm(PC1 ~. , df[,-c(2)]))
+#Association with PC2
+model.pc2 <- anova(lm(PC2 ~. , df[,-c(1)]))
+summary(model.pc2)
 
-## ----Detection Rate, eval = TRUE, echo = TRUE----------------------------
-detectionRate <- apply(counts, 2, function(x) sum(x > 0) / length(x))
-hist(detectionRate)
+#many of these look significant
+ggplot(df, aes(PC1, PC2, colour = mRNA_percent))+
+  geom_point()+
+  labs(title = "PCA plot of cells colored by alignment to mRNA")
 
-rm(detectionRate)  #clean up workspace
+
+ggplot(df, aes(PC1, PC2, colour = cre))+
+  geom_point()+
+  labs(title = "PCA plot of cells colored by Cre reporter")
+  
+rm(gene.var, rpkm.pca, rpkm.top1000, rpkm); gc()  # clean up workspace
 
 ## ----Preprocess, eval = TRUE, echo = TRUE--------------------------------
 library(scater)
@@ -89,12 +137,10 @@ library(scran)
 rownames(cells) <- cells$long_name
 
 # construct a SCESet that also contains the gene counts, ercc counts, and metadata
-all.equal(colnames(counts), colnames(ercc)) # check that the cells are in the same order across the two datasets
-counts.all <- rbind(counts, ercc)  # combine the two into one data.frame
-eset <- newSCESet(countData = counts.all, phenoData = AnnotatedDataFrame(cells))
+eset <- newSCESet(countData = counts, phenoData = AnnotatedDataFrame(cells))
 isSpike(eset) <- grepl("^ERCC", rownames(eset))  #designate which rows contain spikeins instead of genes (for HVG analysis)
 
-rm(counts, counts.all) # remove counts and counts.all matrices to free up memory (the counts are now stored in the eset object)
+rm(counts); gc() # remove counts matrix to free up memory (the counts are now stored in the eset object)
 
 ## ----QC, eval=TRUE, echo=TRUE--------------------------------------------
 # QC to compare the level of dropout in endogeneous genes to ERCC spike ins in raw data
@@ -102,7 +148,6 @@ eset <- calculateQCMetrics(eset, feature_controls=isSpike(eset))
 plotQC(eset, type = "exprs-freq-vs-mean")
 
 ## ----filter, eval=TRUE, echo=TRUE----------------------------------------
-
 # first, filter out genes that are almost always zero (at least 50 out of 1679 cells must have nonzero expression)
 keep <- rowSums(counts(eset) > 0) >= 50
 eset <- eset[keep,] 
@@ -124,6 +169,14 @@ eset <- normalize.SCESet(eset)
 plot(sizeFactors(eset), colSums(counts(eset))/1e6, log="xy",
     ylab="Library Size (Total Counts in Millions)", xlab="Pooled Size Factor Estimate",
     main="Normalization factor versus library size")
+
+## ----Detection Rate, eval = TRUE, echo = TRUE----------------------------
+detectionRate <- apply(counts(eset), 2, function(x) sum(x > 0) / length(x))
+hist(detectionRate)
+
+plot(detectionRate, df$PC1, pch=20, col="grey", ylab="PC 1")
+
+rm(detectionRate, df); gc()  #clean up workspace
 
 ## ----Indentify Variable Genes, eval=TRUE, echo=TRUE----------------------
 var.fit <- trendVar(eset, trend="loess", use.spikes=FALSE, span=0.2)
@@ -204,7 +257,7 @@ legend("topleft", inset=-0.04,
     lty= 1, lwd = 5, cex=0.6
 )
 
-rm(m)  # clean up workspace
+rm(eset, m)  # clean up workspace
 
 ## ----scde prep, eval = TRUE, echo = TRUE---------------------------------
 library(scde)
@@ -263,17 +316,23 @@ write.csv(exp.diff[exp.diff$cPval < 0.05, ], file = "scdeResults_DEgenes.csv", r
 
 ## ----scde plot de, eval=TRUE, echo =TRUE---------------------------------
 # visualize the results for a particular DE gene
+exp.diff[rownames(exp.diff)=="Gad1",]
 scde.test.gene.expression.difference("Gad1", models = err.mod, counts = cts, prior = prior.mod)
 
 ## ----scde plot ee, eval=TRUE, echo=TRUE----------------------------------
+exp.diff[rownames(exp.diff)=="Rgs17",]
 scde.test.gene.expression.difference("Rgs17", models = err.mod, counts = cts, prior = prior.mod)
+
+## ----scde plot Vip, eval=TRUE, echo=TRUE---------------------------------
+exp.diff[rownames(exp.diff)=="Vip",]
+scde.test.gene.expression.difference("Vip", models = err.mod, counts = cts, prior = prior.mod)
 
 # reset plot window
 dev.off()
 
 ## ----heatmap scde, eval=TRUE, echo=TRUE----------------------------------
 # extract matrix of hvg expression for plotting
-m <- exprs(eset)[rownames(eset) %in% rownames(exp.diff[exp.diff$cPval < 0.05,]), colnames(eset) %in% names(group)]
+m <- exprs(eset.hvg)[rownames(eset.hvg) %in% rownames(exp.diff[exp.diff$cPval < 0.05,]), colnames(eset.hvg) %in% names(group)]
 
 # plot heatmap 
 library(RColorBrewer)
@@ -307,6 +366,7 @@ prior_param=list(alpha=0.01, mu0=0, s0=0.01, a0=0.01, b0=0.01)
 
 ## ----scdd fit, eval=TRUE, echo=TRUE--------------------------------------
 # find DE genes between excitatory and inhibitory neuronal subtypes
+set.seed(6767) # set random seed for reprodicbility
 dd.results <- scDD(eset.scdd, prior_param=prior_param, permutations=0, testZeroes=FALSE)
 
 head(dd.results$Genes)
@@ -345,7 +405,7 @@ sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Scg2",], phenoData(eset.scd
 ## ----heatmap DM, eval=TRUE, echo=TRUE------------------------------------
 # extract matrix of hvg expression for plotting
 DMgenes <- dd.results$Genes$gene[dd.results$Genes$DDcategory == "DM"] 
-m <- exprs(eset)[rownames(eset) %in% DMgenes, colnames(eset) %in% names(group)]
+m <- exprs(eset.hvg)[rownames(eset.hvg) %in% DMgenes, colnames(eset.hvg) %in% names(group)]
 
 # plot heatmap 
 library(RColorBrewer)
@@ -362,7 +422,7 @@ rm(m, eset.scdd, dd.results)  # clean up workspace
 
 ## ----Monocle Object, eval = TRUE, echo = TRUE----------------------------
 library(monocle)
-# construct a CellDataSet object with our SCESet object that contains only the top 2000 highly variable genes
+# construct a CellDataSet object with our SCESet object that contains only the top 1000 highly variable genes
 cset <- newCellDataSet(cellData = exprs(eset.hvg), phenoData = phenoData(eset.hvg))
 class(cset)
 
