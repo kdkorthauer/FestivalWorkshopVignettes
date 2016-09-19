@@ -16,7 +16,13 @@ knitr::opts_knit$set(root.dir="~/FestivalWorkshopSC/BrainAtlas")
 
 This is an R Markdown document that contains instructions and code for the examples used in today's workshop.  The first few steps will check that you have all the packages and data files necessary to carry out all of the analyses.  If you are running these analyses on your own machine (not on the RStudio Server instance provided), you will need to have the latest version of R installed (3.3.1, [download here](https://cran.r-project.org/mirrors.html)) and RStudio is also recommended ([download here](https://www.rstudio.com/products/rstudio/)). 
 
+<<<<<<< HEAD
 # Hour I: Getting Started
+=======
+# Hour 1: Getting Started
+Sara Linker
+...
+>>>>>>> f34fc1fa1c2f1b243cb083ee7b194c64290f8f96
 
 ## Check that the Brain Atlas data files are present
 
@@ -26,6 +32,7 @@ The following code chunk assumes that Brain Atlas files have been downloaded and
 setwd("~/FestivalWorkshopSC/BrainAtlas")
 file.exists("cell_metadata.csv")
 file.exists("genes_counts.csv")
+file.exists("genes_rpkm.csv")
 file.exists("ercc_counts.csv")
 file.exists("README.txt")
 ```
@@ -34,11 +41,15 @@ If any of the preceding lines return `FALSE`, double check that you have set the
 
 ## Read the Brain Atlas data files into R
 
-The `read.csv` function in R is useful for reading in .csv (comma-separated value) files.  First, we'll read in the main data file `genes_counts.csv` to a data frame using this function and check its contents.  The extra arguments to this function help to format our object so that we have row and column names, and we use character variables instead of converting to factors.  For more details on these arguments, you can type `help(read.csv)`.  In the resulting `coutns` object, we have genes in rows (24057) and cells in columns (1679).
+The `read.csv` function in R is useful for reading in .csv (comma-separated value) files.  First, we'll read in the main data file `genes_counts.csv` to a data frame using this function and check its contents.  The extra arguments to this function help to format our object so that we have row and column names, and we use character variables instead of converting to factors.  For more details on these arguments, you can type `help(read.csv)`.  In the resulting `counts` object, we have genes in rows (24057) and cells in columns (1679). We will also import the corresponding RPKM normalized data from `genes_rpkm.csv`
 
-```{r Read in Counts, eval=TRUE, echo=TRUE}
+```{r Read in Counts and RPKM, eval=TRUE, echo=TRUE}
 counts <- read.csv("genes_counts.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
-str(counts[,1:20]) # restrict to the first 20 columns (cells) 
+str(counts[,1:20]) # restrict to the first 20 columns (cells)
+
+rpkm.raw <- read.csv("genes_rpkm.csv", stringsAsFactors = FALSE, header=TRUE, row.names = 1)
+str(rpkm.raw[,1:20]) # restrict to the first 20 columns (cells) 
+rpkm <- log(rpkm + 1, 2)
 ```
 
 The `cell_metadata.csv` file contains 1679 rows (one for each cell) and columns containing information such as collection date, sequencing type, total reads, mapping percentage, dissection layer, and major/minor derived cell subtypes. 
@@ -107,32 +118,94 @@ install.packages("devtools")
 devtools::install_github("kdkorthauer/scDD")
 ```
 
+## Explore the data
+Let's take a quick peek at what our data looks like to get a handle on the information it contains
+
+```{r examine data, echo=TRUE, eval = FALSE}
+# Take the dimensions of the count and normalized objects
+dim(rpkm)
+dim(counts)
+
+#both objects contain the same genes in the same order
+head(rownames(rpkm))
+head(rownames(counts))
+
+#as well as the same samples in the same order
+head(colnames(rpkm))
+head(colnames(counts))
+
+```
+Although they contain the same basic information. The two datasets, counts and rpkm, are distributed very differently
+```
+hist(as.vector(as.matrix(counts)))
+hist(as.vector(as.matrix(rpkm)))
+```
+Now let's take a look at the metadata
+```
+#There is a row for each column in the gene expression matrices
+dim(cells)
+#Each column represents a different variable associated with the dataset
+colnames(cells)
+#For example, the columns cre contains the cre-drivers used. We can see how many cells of each line are present in the dataset
+table(cells$cre)
+barplot(table(cells$cre))
+```
+
 ## Visualize major axes of variation in a PCA plot
 
 ... needs explanatory text...
 
 ```{r PCA, eval = TRUE, echo = TRUE}
 # extract top 1000 variable genes
-gene.var <- apply(counts, 1, function(x) var(log(x[x>0])))
-counts.top1000 <- counts[which(rank(-gene.var)<=1000),]
+gene.var <- apply(rpkm, 1, function(x) var(x[x>0]))
+rpkm.top1000 <- rpkm[which(rank(-gene.var)<=1000),]
 
-counts.pca <- prcomp(log(counts.top1000+1),
+rpkm.pca <- prcomp(rpkm.top1000),
                    center = TRUE,
                    scale. = TRUE) 
-summary(counts.pca)$importance[,1:5]
-plot(counts.pca, type="l", main="Top 10 PCs")
+summary(rpkm.pca)$importance[,1:5]
+plot(rpkm.pca, type="l", main="Top 10 PCs")
 
+#Plot the first PCs
+cells.inform <- cells[,c(2,3,4,7,11,12,14)]
+df <- data.frame(PC1 = rpkm.pca$rotation[,1],
+                 PC2 = rpkm.pca$rotation[,2],
+                 cells.inform
+                )
+
+ggplot(df, aes(PC1, PC2, colour = major_class))+
+  geom_point()+
+  labs(title = "PCA plot of cells colored by Major Class")
+
+
+<<<<<<< HEAD
 color_class <- rainbow(length(unique(cells$major_class)))
 plot(counts.pca$rotation[,1], counts.pca$rotation[,2], 
       xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$major_class))], pch=20,
       main="PCA plot of cells colored by Major Class")
+=======
+#it's often advantageous to run a quick association of the top components of variation with your known variables
+#Association with PC1
+model.pc1 <- anova(lm(PC1 ~. , df[,-c(2)]))
+#Association with PC2
+model.pc2 <- anova(lm(PC2 ~. , df[,-c(1)]))
+summary(model.pc2)
+>>>>>>> f34fc1fa1c2f1b243cb083ee7b194c64290f8f96
 
-color_class <- rainbow(length(unique(cells$layer_dissectoin)))
-plot(counts.pca$rotation[,1], counts.pca$rotation[,2], 
-      xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$layer_dissectoin))], pch=20,
-      main="PCA plot of cells colored by Dissection Layer")
+#many of these look significant
+ggplot(df, aes(PC1, PC2, colour = mRNA_percent))+
+  geom_point()+
+  labs(title = "PCA plot of cells colored by alignment to mRNA")
 
+<<<<<<< HEAD
 rm(gene.var, counts.pca, counts.top1000); gc()  # clean up workspace
+=======
+ggplot(df, aes(PC1, PC2, colour = cre))+
+  geom_point()+
+  labs(title = "PCA plot of cells colored by Cre reporter")
+  
+rm(gene.var, rpkm.pca, rpkm.top1000, df); gc()  # clean up workspace
+>>>>>>> f34fc1fa1c2f1b243cb083ee7b194c64290f8f96
 ```
 
 # Hour II: Normalization and Quality Control of scRNA-seq
