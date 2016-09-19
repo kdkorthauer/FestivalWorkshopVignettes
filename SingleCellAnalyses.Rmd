@@ -17,7 +17,7 @@ knitr::opts_knit$set(root.dir="~/FestivalWorkshopSC/BrainAtlas")
 This is an R Markdown document that contains instructions and code for the examples used in today's workshop.  The first few steps will check that you have all the packages and data files necessary to carry out all of the analyses.
 
 # Hour 1: Getting Started
-Sara's section
+Sara Linker
 ...
 
 ## Check that the Brain Atlas data files are present
@@ -131,7 +131,6 @@ head(colnames(counts))
 
 ```
 Although they contain the same basic information. The two datasets, counts and rpkm, are distributed very differently
-
 ```
 hist(as.vector(as.matrix(counts)))
 hist(as.vector(as.matrix(rpkm)))
@@ -140,6 +139,11 @@ Now let's take a look at the metadata
 ```
 #There is a row for each column in the gene expression matrices
 dim(cells)
+#Each column represents a different variable associated with the dataset
+colnames(cells)
+#For example, the columns cre contains the cre-drivers used. We can see how many cells of each line are present in the dataset
+table(cells$cre)
+barplot(table(cells$cre))
 ```
 
 ## Visualize major axes of variation in a PCA plot
@@ -155,17 +159,35 @@ rpkm.pca <- prcomp(rpkm.top1000),
 summary(rpkm.pca)$importance[,1:5]
 plot(rpkm.pca, type="l", main="Top 10 PCs")
 
-color_class <- rainbow(length(unique(cells$major_class)))
-plot(rpkm.pca$rotation[,1], rpkm.pca$rotation[,2], 
-      xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$major_class))], pch=20,
-      main="PCA plot of cells colored by Major Class")
+#Plot the first PCs
+cells.inform <- cells[,c(2,3,4,7,11,12,14)]
+df <- data.frame(PC1 = rpkm.pca$rotation[,1],
+                 PC2 = rpkm.pca$rotation[,2],
+                 cells.inform
+                )
 
-color_class <- rainbow(length(unique(cells$layer_dissectoin)))
-plot(rpkm.pca$rotation[,1], rpkm.pca$rotation[,2], 
-      xlab="PC 1", ylab="PC 2", col=color_class[as.numeric(factor(cells$layer_dissectoin))], pch=20,
-      main="PCA plot of cells colored by Dissection Layer")
+ggplot(df, aes(PC1, PC2, colour = major_class))+
+  geom_point()+
+  labs(title = "PCA plot of cells colored by Major Class")
 
-rm(gene.var, rpkm.pca, rpkm.top1000); gc()  # clean up workspace
+
+#it's often advantageous to run a quick association of the top components of variation with your known variables
+#Association with PC1
+model.pc1 <- anova(lm(PC1 ~. , df[,-c(2)]))
+#Association with PC2
+model.pc2 <- anova(lm(PC2 ~. , df[,-c(1)]))
+summary(model.pc2)
+
+#many of these look significant
+ggplot(df, aes(PC1, PC2, colour = mRNA_percent))+
+  geom_point()+
+  labs(title = "PCA plot of cells colored by alignment to mRNA")
+
+ggplot(df, aes(PC1, PC2, colour = cre))+
+  geom_point()+
+  labs(title = "PCA plot of cells colored by Cre reporter")
+  
+rm(gene.var, rpkm.pca, rpkm.top1000, df); gc()  # clean up workspace
 ```
 
 # Hour 2: Normalization and Quality Control of scRNA-seq
