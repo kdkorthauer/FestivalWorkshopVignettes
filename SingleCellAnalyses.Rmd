@@ -193,7 +193,7 @@ rm(gene.var, rpkm.pca, rpkm.top1000, rpkm); gc()  # clean up workspace
 ```
 
 # Hour II: Normalization and Quality Control of scRNA-seq
-Apua's overview of QC metrics and assessment of normalization metrics using the R package scone. To view this material, visit his GitHub page.  
+Apua's overview of QC metrics and assessment of normalization metrics using the R package scone. To view this material, visit his GitHub page [here](https://github.com/apuapaquola/fog).  
 
 ## Normalization
 In the previous section we used data that have been normalized by RPKM.  It is vital that the RNA-seq counts be normalized to ensure that differences found are not due to things like sequencing depth, library preparation, or batch effects.  Since scRNA-seq data exhibits much more technical variablity and much lower detection rate than bulk RNA-seq, new specialized normalization methods have been developed.  Here we wil use the pool & deconvolve normalization method of Lun et al. (2016) to adjust for library size.
