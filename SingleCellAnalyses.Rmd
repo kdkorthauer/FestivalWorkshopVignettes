@@ -78,7 +78,7 @@ head README.txt
 
 ## Check that the desired R packages have been installed
 
-We will make use of many existing R packages (collections of functions to carry out a specific task).  If you are using your own machine instead of the RStudio Server instance provided, you'll need to install these manually.  Instructions are below.  The following is a list of the packages we'll be using along where they can be found, and the code checks whether they are already installed.
+We will make use of many existing R packages (collections of functions to carry out a specific task).  If you are using your own machine instead of the RStudio Server instance provided, you'll need to install each of these manually.  Instructions are below.  The following is a list of the packages we'll be using along where they can be found, and the code checks whether they are already installed.  
 
 ```{r Check for desired packages, eval=TRUE, echo=TRUE, results="hide", message=FALSE, warning=FALSE}
 require(scde)         #bioconductor
@@ -86,13 +86,14 @@ require(monocle)      #bioconductor
 require(scran)        #bioconductor
 require(scater)       #bioconductor
 require(Biobase)      #bioconductor
+require(EBSeq)        #bioconductor
 require(scDD)         #github
 require(ggplot2)      #cran
 require(devtools)     #cran
 require(RColorBrewer) #cran
 ```
 
-If any of these commands return a message that includes "there is no package called...", then the package is missing and needs to be installed.  Note that packages may be stored in one of several package repositories.  The most popular are Bioconductor, github, and CRAN.  For Bioconductor packages, for example ```monocle```, this can be done with the following code:
+If any of these commands return a message that includes "there is no package called...", then the package is missing and needs to be installed (this is expected if you have just installed R for the first time, since most packages are optional add-ons).  Note that packages may be stored in one of several package repositories.  The most popular are Bioconductor, github, and CRAN.  For Bioconductor packages, for example ```monocle```, this can be done with the following code:
 
 ```{r install bioconductor package, echo=TRUE, eval=FALSE, results="hide", message=FALSE}
 source("http://bioconductor.org/biocLite.R")
@@ -115,7 +116,7 @@ devtools::install_github("kdkorthauer/scDD")
 ## Explore the data
 Let's take a quick peek at what our data looks like to get a handle on the information it contains
 
-```{r examine data, echo=TRUE, eval = FALSE}
+```{r examine data, echo=TRUE, eval = TRUE}
 # Take the dimensions of the count and normalized objects
 dim(rpkm)
 dim(counts)
@@ -191,12 +192,8 @@ ggplot(df, aes(PC1, PC2, colour = cre))+
 rm(gene.var, rpkm.pca, rpkm.top1000, rpkm); gc()  # clean up workspace
 ```
 
-# Hour III: Analysis Modules
-
-## Module 1: Identify the highly variable genes
-=======
 # Hour II: Normalization and Quality Control of scRNA-seq
-Apua's Section 
+Apua's overview of QC metrics and assessment of normalization metrics using the R package scone. To view this material, visit his GitHub page.  
 
 ## Normalization
 In the previous section we used data that have been normalized by RPKM.  It is vital that the RNA-seq counts be normalized to ensure that differences found are not due to things like sequencing depth, library preparation, or batch effects.  Since scRNA-seq data exhibits much more technical variablity and much lower detection rate than bulk RNA-seq, new specialized normalization methods have been developed.  Here we wil use the pool & deconvolve normalization method of Lun et al. (2016) to adjust for library size.
