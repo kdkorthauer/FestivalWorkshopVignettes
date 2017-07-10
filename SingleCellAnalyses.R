@@ -36,10 +36,7 @@ ercc <- ercc[-whichTomato,]
 all.equal(colnames(counts), colnames(ercc)) # check that the cells are in the same order across the two datasets
 counts <- rbind(counts, ercc)  
 
-## ----Peek at README.txt file, eval=TRUE, echo=TRUE, engine="bash"--------
-# This is a bash command, to be executed at the command line (not within R);
-# Alternatively, simply open the README.txt in your favorite text editor to view its contents
-head README.txt
+## # This is a bash command, to be executed at the command line (not within R);
 
 ## ----Check for desired packages, eval=TRUE, echo=TRUE, results="hide", message=FALSE, warning=FALSE----
 require(scde)         #bioconductor
@@ -47,35 +44,32 @@ require(monocle)      #bioconductor
 require(scran)        #bioconductor
 require(scater)       #bioconductor
 require(Biobase)      #bioconductor
-require(scDD)         #github
+require(EBSeq)        #bioconductor
+require(scDD)         #bioconductor
+require(SummarizedExperiment) # bioconductor
 require(ggplot2)      #cran
-require(devtools)     #cran
 require(RColorBrewer) #cran
 
 ## ----install bioconductor package, echo=TRUE, eval=FALSE, results="hide", message=FALSE----
 ## source("http://bioconductor.org/biocLite.R")
-## biocLite("monocle")
+## biocLite("scDD")
 
 ## ----install cran packages, echo=TRUE, eval=FALSE------------------------
-## install.packages(devtools)
+## install.packages(ggplot2)
 
-## ----install github packages, echo=TRUE, eval = FALSE--------------------
-## install.packages("devtools")
-## devtools::install_github("kdkorthauer/scDD")
+## ----examine data, echo=TRUE, eval = TRUE--------------------------------
+# Take the dimensions of the count and normalized objects
+dim(rpkm)
+dim(counts)
 
-## ----examine data, echo=TRUE, eval = FALSE-------------------------------
-## # Take the dimensions of the count and normalized objects
-## dim(rpkm)
-## dim(counts)
-## 
-## #both objects contain the same genes in the same order
-## head(rownames(rpkm))
-## head(rownames(counts))
-## 
-## #as well as the same samples in the same order
-## head(colnames(rpkm))
-## head(colnames(counts))
-## 
+#both objects contain the same genes in the same order
+head(rownames(rpkm))
+head(rownames(counts))
+
+#as well as the same samples in the same order
+head(colnames(rpkm))
+head(colnames(counts))
+
 
 ## ----hist counts, eval=TRUE, echo=TRUE-----------------------------------
 hist(as.vector(as.matrix(counts)))
@@ -138,13 +132,16 @@ rownames(cells) <- cells$long_name
 
 # construct a SCESet that also contains the gene counts, ercc counts, and metadata
 eset <- newSCESet(countData = counts, phenoData = AnnotatedDataFrame(cells))
-isSpike(eset) <- grepl("^ERCC", rownames(eset))  #designate which rows contain spikeins instead of genes (for HVG analysis)
 
 rm(counts); gc() # remove counts matrix to free up memory (the counts are now stored in the eset object)
 
 ## ----QC, eval=TRUE, echo=TRUE--------------------------------------------
 # QC to compare the level of dropout in endogeneous genes to ERCC spike ins in raw data
-eset <- calculateQCMetrics(eset, feature_controls=isSpike(eset))
+eset <- calculateQCMetrics(eset, feature_controls=list(ERCC=which(grepl("^ERCC", rownames(eset)))))
+
+#designate which rows contain spikeins instead of genes (for HVG analysis)
+setSpike(eset) <- "ERCC"
+
 plotQC(eset, type = "exprs-freq-vs-mean")
 
 ## ----filter, eval=TRUE, echo=TRUE----------------------------------------
@@ -205,7 +202,7 @@ legend(11.5,40, title="Proportion cells zero", legend=paste0(1-round(quantile(pz
 rm(pzero)    # clean up workspace
 
 ## ----Indentify Variable Genes with spikes, eval=TRUE, echo=TRUE----------
-var.fit.spike <- trendVar(eset, trend="loess", use.spikes=TRUE, span=0.3)
+var.fit.spike <- trendVar(eset, trend="loess", span=0.3, use.spikes=TRUE)
 var.out.spike <- decomposeVar(eset, var.fit.spike)
 
 # plot the mean versus variance of log-expression, along with the technical variance fit
@@ -257,7 +254,7 @@ legend("topleft", inset=-0.04,
     lty= 1, lwd = 5, cex=0.6
 )
 
-rm(eset, m)  # clean up workspace
+rm(m)  # clean up workspace
 
 ## ----scde prep, eval = TRUE, echo = TRUE---------------------------------
 library(scde)
@@ -350,15 +347,14 @@ rm(m, exp.diff, err.mod, prior.mod, cts) # clean up workspace
 ## ----scdd setup, eval = TRUE, echo = TRUE--------------------------------
 library(scDD)
 library(Biobase)
+library(SummarizedExperiment)
 
 # construct object to send to scDD; we'll reuse group object created for SCDE analysis and create a new (raw-scale) normalized counts matrix
 condition <- as.numeric(as.factor(group))
 names(condition) <- names(group)
-cts <- exp(exprs(eset.hvg[,which.neur])) # scDD requires normalized counts on the raw scale (not logged)
-cts <- cts - min(cts)                    # scran added a pseudocount after normalization; need to keep zero counts as zeroes
-cts[cts < 1e-6] <- 0                     # account for floating point error in estimating psuedocount
-eset.scdd <- ExpressionSet(assayData=cts,
-                     phenoData=as(data.frame(condition), "AnnotatedDataFrame"))
+cts <- exp(exprs(eset.hvg[,which.neur])) - 1 #scdd expects raw counts (not log-scaled)
+se.scdd <- SummarizedExperiment(assays=list("NormCounts"=cts),
+                                colData=data.frame(condition))
 rm(cts) # clean up workspace
 
 # Create list of prior parameters for model fitting 
@@ -367,44 +363,44 @@ prior_param=list(alpha=0.01, mu0=0, s0=0.01, a0=0.01, b0=0.01)
 ## ----scdd fit, eval=TRUE, echo=TRUE--------------------------------------
 # find DE genes between excitatory and inhibitory neuronal subtypes
 set.seed(6767) # set random seed for reprodicbility
-dd.results <- scDD(eset.scdd, prior_param=prior_param, permutations=0, testZeroes=FALSE)
+se.scdd <- scDD(se.scdd, prior_param=prior_param, permutations=0, testZeroes=FALSE)
 
-head(dd.results$Genes)
+head(results(se.scdd))
 
 # how many genes were significantly differentially distributed?
-sum(dd.results$Genes$nonzero.pvalue.adj < 0.05)
+sum(results(se.scdd)$nonzero.pvalue.adj < 0.05)
 
 # what categories to the DD genes belong to?
-table(dd.results$Genes$DDcategory)
+table(results(se.scdd)$DDcategory)
 
 ## ----scdd gad1, eval=TRUE, echo=TRUE-------------------------------------
-dd.results$Genes[dd.results$Genes$gene == "Gad1",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Gad1",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Gad1",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Gad1",], colData(se.scdd)$condition,
             title.gene="Gad1")
 
 ## ----scdd Rgs17, eval=TRUE, echo=TRUE------------------------------------
-dd.results$Genes[dd.results$Genes$gene == "Rgs17",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Rgs17",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Rgs17",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Rgs17",], colData(se.scdd)$condition,
             title.gene="Rgs17")
 
 ## ----scdd Vip, eval=TRUE, echo=TRUE--------------------------------------
-dd.results$Genes[dd.results$Genes$gene == "Vip",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Vip",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Vip",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Vip",], colData(se.scdd)$condition,
             title.gene="Vip")
 
 ## ----scdd Pla2g7, eval=TRUE, echo=TRUE-----------------------------------
-dd.results$Genes[dd.results$Genes$gene == "Pla2g7",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Pla2g7",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Pla2g7",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Pla2g7",], colData(se.scdd)$condition,
             title.gene="Pla2g7")
 
 ## ----scdd Scg2, eval=TRUE, echo=TRUE-------------------------------------
-dd.results$Genes[dd.results$Genes$gene == "Scg2",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Scg2",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Scg2",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Scg2",], colData(se.scdd)$condition,
             title.gene="Scg2")
 
 ## ----heatmap DM, eval=TRUE, echo=TRUE------------------------------------
 # extract matrix of hvg expression for plotting
-DMgenes <- dd.results$Genes$gene[dd.results$Genes$DDcategory == "DM"] 
+DMgenes <- results(se.scdd)$gene[results(se.scdd)$DDcategory == "DM"] 
 m <- exprs(eset.hvg)[rownames(eset.hvg) %in% DMgenes, colnames(eset.hvg) %in% names(group)]
 
 # plot heatmap 
@@ -418,41 +414,50 @@ legend("topleft", inset=-0.01,
     lty= 1, lwd = 5, cex=0.6
 )
 
-rm(m, eset.scdd, dd.results)  # clean up workspace
+rm(m, se.scdd)  # clean up workspace
 
 ## ----Monocle Object, eval = TRUE, echo = TRUE----------------------------
 library(monocle)
 # construct a CellDataSet object with our SCESet object that contains only the top 1000 highly variable genes
-cset <- newCellDataSet(cellData = exprs(eset.hvg), phenoData = phenoData(eset.hvg))
+cts <- exp(exprs(eset)) - 1 #scdd expects raw counts (not log-scaled)
+genes <- data.frame(gene_short_name=rownames(eset))
+rownames(genes) <- genes$gene_short_name
+pheno <-  phenoData(eset)@data
+rownames(pheno) <- pheno$long_name
+cset <- newCellDataSet(as(as.matrix(cts), "sparseMatrix"), 
+                       phenoData = new("AnnotatedDataFrame", 
+                                       data=pheno),
+                       featureData = new("AnnotatedDataFrame", data = genes),
+                       expressionFamily=negbinomial.size())
 class(cset)
+cset <- estimateSizeFactors(cset)
+cset <- estimateDispersions(cset)
 
 ## ----Pseudotime algorithm, eval = TRUE, echo = TRUE----------------------
-options(expressions = 500000) # 'under-the-hood' option; need to execute if using OSX or Windows due to a limitation on C stack size
-
 # Run Monocle on subset of Inhibitory neurons
 cset.inhibitory <- cset[,phenoData(cset)$major_class=="Inhibitory" & 
                          phenoData(cset)$layer_dissectoin %in% c("lower", "upper")]
 cset.inhibitory <- setOrderingFilter(cset.inhibitory, ordering_genes=rownames(cset.inhibitory)[1:100])
-cset.inhibitory <- reduceDimension(cset.inhibitory, use_irlba = FALSE) # Reduce dimensionality
-cset.inhibitory <- orderCells(cset.inhibitory, num_paths = 1, reverse = FALSE) # Order cells
+cset.inhibitory <- reduceDimension(cset.inhibitory) # Reduce dimensionality
+cset.inhibitory <- orderCells(cset.inhibitory) # Order cells
 
 # Run Monocle on subset of Excitatory neurons
 cset.excitatory <- cset[,phenoData(cset)$major_class=="Excitatory" & 
                          phenoData(cset)$layer_dissectoin %in% c("L1", "L2/3", "L4", "L5", "L6", "L6a", "L6b")]
 cset.excitatory <- setOrderingFilter(cset.excitatory, ordering_genes=rownames(cset.excitatory)[1:100])
-cset.excitatory <- reduceDimension(cset.excitatory, use_irlba = FALSE) # Reduce dimensionality
-cset.excitatory <- orderCells(cset.excitatory, num_paths = 1, reverse = FALSE) # Order cells
+cset.excitatory <- reduceDimension(cset.excitatory) # Reduce dimensionality
+cset.excitatory <- orderCells(cset.excitatory) # Order cells
 
 rm(cset) # clean up workspace
 
 ## ----Pseudotime plotting, eval = TRUE, echo = TRUE-----------------------
 # plotting by various factors
-plot_spanning_tree(cset.inhibitory, color_by="layer_dissectoin") # plot spanning tree
-plot_spanning_tree(cset.inhibitory, color_by = "cre")
+plot_cell_trajectory(cset.inhibitory, color_by="layer_dissectoin") # plot spanning tree
+plot_cell_trajectory(cset.inhibitory, color_by = "cre")
 
 # Excitatory
-plot_spanning_tree(cset.excitatory, color_by="layer_dissectoin") # plot spanning tree
-plot_spanning_tree(cset.excitatory, color_by="cre") # plot spanning tree
+plot_cell_trajectory(cset.excitatory, color_by="layer_dissectoin") # plot spanning tree
+plot_cell_trajectory(cset.excitatory, color_by="cre") # plot spanning tree
 
 ## ----sesh, eval=TRUE, echo=TRUE------------------------------------------
 sessionInfo()

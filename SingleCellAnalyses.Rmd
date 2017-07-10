@@ -87,9 +87,9 @@ require(scran)        #bioconductor
 require(scater)       #bioconductor
 require(Biobase)      #bioconductor
 require(EBSeq)        #bioconductor
-require(scDD)         #github
+require(scDD)         #bioconductor
+require(SummarizedExperiment) # bioconductor
 require(ggplot2)      #cran
-require(devtools)     #cran
 require(RColorBrewer) #cran
 ```
 
@@ -97,21 +97,14 @@ If any of these commands return a message that includes "there is no package cal
 
 ```{r install bioconductor package, echo=TRUE, eval=FALSE, results="hide", message=FALSE}
 source("http://bioconductor.org/biocLite.R")
-biocLite("monocle")
+biocLite("scDD")
 ```
 
-For CRAN packages, for example ```devtools```, installation can be done with the following code:
+For CRAN packages, for example ```ggplot2```, installation can be done with the following code:
 
 ```{r install cran packages, echo=TRUE, eval=FALSE}
-install.packages(devtools)
+install.packages(ggplot2)
 ``` 
-
-For Github packages, for example ```scDD```, installation can be done with the following code:
-
-```{r install github packages, echo=TRUE, eval = FALSE}
-install.packages("devtools")
-devtools::install_github("kdkorthauer/scDD")
-```
 
 ## Explore the data
 Let's take a quick peek at what our data looks like to get a handle on the information it contains
@@ -207,7 +200,6 @@ rownames(cells) <- cells$long_name
 
 # construct a SCESet that also contains the gene counts, ercc counts, and metadata
 eset <- newSCESet(countData = counts, phenoData = AnnotatedDataFrame(cells))
-isSpike(eset) <- grepl("^ERCC", rownames(eset))  #designate which rows contain spikeins instead of genes (for HVG analysis)
 
 rm(counts); gc() # remove counts matrix to free up memory (the counts are now stored in the eset object)
 ```
@@ -216,7 +208,11 @@ Now that our SCESet has been created, we'll perform some basic preprocessing and
 
 ```{r QC, eval=TRUE, echo=TRUE}
 # QC to compare the level of dropout in endogeneous genes to ERCC spike ins in raw data
-eset <- calculateQCMetrics(eset, feature_controls=isSpike(eset))
+eset <- calculateQCMetrics(eset, feature_controls=list(ERCC=which(grepl("^ERCC", rownames(eset)))))
+
+#designate which rows contain spikeins instead of genes (for HVG analysis)
+setSpike(eset) <- "ERCC"
+
 plotQC(eset, type = "exprs-freq-vs-mean")
 ```
 
@@ -310,7 +306,7 @@ Recall the assumption we made in estimating the mean-variance relationship above
 If this assumption is suspect, it is ideal to independently estimate this relationship for so-called 'spike-in' data (where a small number of artifical transcripts have been added at known concentrations such that any variability is assured to be technical).  Fortunately, in this experiment we have ERCC control spike-ins, so we'll repeat the steps above to estimate the mean-variance relationship *only* on the spike-ins. We do this by using the ```use.spikes=TRUE``` option in the ```trendVar``` function.  We also increase the smoothing span a bit since we are using fewer points for estimation.  The points colored in red are the spike-in transcripts.
 
 ```{r Indentify Variable Genes with spikes, eval=TRUE, echo=TRUE}
-var.fit.spike <- trendVar(eset, trend="loess", use.spikes=TRUE, span=0.3)
+var.fit.spike <- trendVar(eset, trend="loess", span=0.3, use.spikes=TRUE)
 var.out.spike <- decomposeVar(eset, var.fit.spike)
 
 # plot the mean versus variance of log-expression, along with the technical variance fit
@@ -375,7 +371,7 @@ legend("topleft", inset=-0.04,
     lty= 1, lwd = 5, cex=0.6
 )
 
-rm(eset, m)  # clean up workspace
+rm(m)  # clean up workspace
 ```
 
 ## Module 2: Identify Differentially Expressed genes
@@ -508,20 +504,19 @@ Next we'll explore the method ```scDD``` which also compares expression between 
 
 Our aim is two-fold: (1) to detect which genes have different expression distributions between the two neuronal subtypes and (2) to classify those differences into informative patterns. Note that in (1) we explicitly say differences in ’distributions’ rather than differences in ’average’, which would correspond to traditional DE (differential expression) analysis in bulk RNA-seq. By examining the entire distribution, we are able to detect more subtle differences as well as describe complex patterns, such as the existence of subgroups of cells within and across condition that express a given gene at a different level.
 
-First, we construct an ```ExpressionSet``` object that contains our count data and cell metadata for input to ```scDD```.  Note that this is very similar to the ```SCESet``` object class used by ```scater```; that class is based on the ```ExpressionSet``` class.  We'll reuse the ```group``` and ```which.neur``` neuronal subtype vector since they already contain the subset cells we wish to analyze.  Note that scDD expects normalized counts (not log-transformed), so we extract them from the ```eset.hvg``` object using the ```exprs``` function.  We'll also create a list of the hyperparameters to use in model-fitting.
+First, we construct a ```SummarizedExperiment``` object that contains our count data and cell metadata for input to ```scDD```.  Note that this is very similar to the ```SCESet``` object class used by ```scater```; that class is based on the ```ExpressionSet``` class.  We'll reuse the ```group``` and ```which.neur``` neuronal subtype vector since they already contain the subset cells we wish to analyze.  Note that scDD expects normalized counts (not log-transformed), so we extract them from the ```eset.hvg``` object using the ```exprs``` function.  We'll also create a list of the hyperparameters to use in model-fitting.
 
 ```{r scdd setup, eval = TRUE, echo = TRUE}
 library(scDD)
 library(Biobase)
+library(SummarizedExperiment)
 
 # construct object to send to scDD; we'll reuse group object created for SCDE analysis and create a new (raw-scale) normalized counts matrix
 condition <- as.numeric(as.factor(group))
 names(condition) <- names(group)
-cts <- exp(exprs(eset.hvg[,which.neur])) # scDD requires normalized counts on the raw scale (not logged)
-cts <- cts - min(cts)                    # scran added a pseudocount after normalization; need to keep zero counts as zeroes
-cts[cts < 1e-6] <- 0                     # account for floating point error in estimating psuedocount
-eset.scdd <- ExpressionSet(assayData=cts,
-                     phenoData=as(data.frame(condition), "AnnotatedDataFrame"))
+cts <- exp(exprs(eset.hvg[,which.neur])) - 1 #scdd expects raw counts (not log-scaled)
+se.scdd <- SummarizedExperiment(assays=list("NormCounts"=cts),
+                                colData=data.frame(condition))
 rm(cts) # clean up workspace
 
 # Create list of prior parameters for model fitting 
@@ -533,15 +528,15 @@ Next, we're ready to use the main function ```scDD``` to detect and classify dif
 ```{r scdd fit, eval=TRUE, echo=TRUE}
 # find DE genes between excitatory and inhibitory neuronal subtypes
 set.seed(6767) # set random seed for reprodicbility
-dd.results <- scDD(eset.scdd, prior_param=prior_param, permutations=0, testZeroes=FALSE)
+se.scdd <- scDD(se.scdd, prior_param=prior_param, permutations=0, testZeroes=FALSE)
 
-head(dd.results$Genes)
+head(results(se.scdd))
 
 # how many genes were significantly differentially distributed?
-sum(dd.results$Genes$nonzero.pvalue.adj < 0.05)
+sum(results(se.scdd)$nonzero.pvalue.adj < 0.05)
 
 # what categories to the DD genes belong to?
-table(dd.results$Genes$DDcategory)
+table(results(se.scdd)$DDcategory)
 ```
 
 We see that the majority of these HVGs are differentially distributed.  Note that we expect to detect more differential genes than with SCDE, since scDD can also detect changes that are more subtle and complex than an overall mean shift.
@@ -549,16 +544,16 @@ We see that the majority of these HVGs are differentially distributed.  Note tha
 Let's take a look at the distributions of the two genes we plotted for SCDE.  The *Gad1* gene was detected as significantly differentially distributed, and was categorized as "Differentially Expressed" (difference in overall mean expression between the cell types).  In these plots, the cell type labels have been converted to numeric, but 1=Excitatory and 2=Inhibitory.
 
 ```{r scdd gad1, eval=TRUE, echo=TRUE}
-dd.results$Genes[dd.results$Genes$gene == "Gad1",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Gad1",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Gad1",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Gad1",], colData(se.scdd)$condition,
             title.gene="Gad1")
 ```
 
 The *Rgs17* gene was not differentially distributed.
 
 ```{r scdd Rgs17, eval=TRUE, echo=TRUE}
-dd.results$Genes[dd.results$Genes$gene == "Rgs17",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Rgs17",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Rgs17",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Rgs17",], colData(se.scdd)$condition,
             title.gene="Rgs17")
 ```
 
@@ -566,24 +561,24 @@ And to illustrate some of the more complex distributional patterns, we'll take a
 
 
 ```{r scdd Vip, eval=TRUE, echo=TRUE}
-dd.results$Genes[dd.results$Genes$gene == "Vip",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Vip",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Vip",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Vip",], colData(se.scdd)$condition,
             title.gene="Vip")
 ```
 
 The *Pla2g7* gene was classified as having multiple underlying levels of expression in each cell type (multi-modality), however there were a "differential proportion" of excitatory and inhibitory cells belonging to each expression level.  Specifically, more of the inhibitory cells expressed *Pla2g7* at the high expression mode.
 
 ```{r scdd Pla2g7, eval=TRUE, echo=TRUE}
-dd.results$Genes[dd.results$Genes$gene == "Pla2g7",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Pla2g7",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Pla2g7",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Pla2g7",], colData(se.scdd)$condition,
             title.gene="Pla2g7")
 ```
 
 Finally, the *Scg2* gene was classified as having both "differential modality" and different overal mean expression level.  Specifically, two subgroups of cells were detected in the excitatory cells and one in the inhibitory, but none of the subgroups overlapped between the cell types.
 
 ```{r scdd Scg2, eval=TRUE, echo=TRUE}
-dd.results$Genes[dd.results$Genes$gene == "Scg2",]
-sideViolin(exprs(eset.scdd)[rownames(eset.scdd) ==  "Scg2",], phenoData(eset.scdd)$condition,
+results(se.scdd)[results(se.scdd)$gene == "Scg2",]
+sideViolin(assays(se.scdd)$NormCounts[rownames(se.scdd) ==  "Scg2",], colData(se.scdd)$condition,
             title.gene="Scg2")
 ```
 
@@ -591,7 +586,7 @@ Lastly, we'll create a heatmap plot to visualize how the overall expression of d
 
 ```{r heatmap DM, eval=TRUE, echo=TRUE}
 # extract matrix of hvg expression for plotting
-DMgenes <- dd.results$Genes$gene[dd.results$Genes$DDcategory == "DM"] 
+DMgenes <- results(se.scdd)$gene[results(se.scdd)$DDcategory == "DM"] 
 m <- exprs(eset.hvg)[rownames(eset.hvg) %in% DMgenes, colnames(eset.hvg) %in% names(group)]
 
 # plot heatmap 
@@ -605,7 +600,7 @@ legend("topleft", inset=-0.01,
     lty= 1, lwd = 5, cex=0.6
 )
 
-rm(m, eset.scdd, dd.results)  # clean up workspace
+rm(m, se.scdd)  # clean up workspace
 ```
 
 ## Module 3: Order cells by "Psuedotime" (temporal-spatial variation): Monocle
@@ -617,30 +612,39 @@ Our goal in this analysis module is to discover a latent trajectory of variation
 ```{r Monocle Object, eval = TRUE, echo = TRUE}
 library(monocle)
 # construct a CellDataSet object with our SCESet object that contains only the top 1000 highly variable genes
-cset <- newCellDataSet(cellData = exprs(eset.hvg), phenoData = phenoData(eset.hvg))
+cts <- exp(exprs(eset)) - 1 #scdd expects raw counts (not log-scaled)
+genes <- data.frame(gene_short_name=rownames(eset))
+rownames(genes) <- genes$gene_short_name
+pheno <-  phenoData(eset)@data
+rownames(pheno) <- pheno$long_name
+cset <- newCellDataSet(as(as.matrix(cts), "sparseMatrix"), 
+                       phenoData = new("AnnotatedDataFrame", 
+                                       data=pheno),
+                       featureData = new("AnnotatedDataFrame", data = genes),
+                       expressionFamily=negbinomial.size())
 class(cset)
+cset <- estimateSizeFactors(cset)
+cset <- estimateDispersions(cset)
 ```
 
-The ```setOrderingFilter``` function requires that we select which genes to use in the ordering.  Since we have already filtered our ```cset``` dataset to include only the top 1000 highly variable genes, ordered by biological variance, we can subset the top 1000 genes to include only the top 100 highly variable genes . Before applying Monocle's ordering algorithm, we use the ```reduceDimensions``` function to perform dimension reduction on this set of 100 genes.  Finally, the ```orderCells``` function carries out the Monocle algorithm.  Note that we need to specify the number of paths here, which represent the number of main cell fates (or states) believed to be present.  Here we choose one, which represents the path along the cortical layers as linear.  Note that this step can take several minutes to complete.
+The ```setOrderingFilter``` function requires that we select which genes to use in the ordering.  Since we have already filtered our ```cset``` dataset to include only the top 1000 highly variable genes, ordered by biological variance, we can subset the top 1000 genes to include only the top 100 highly variable genes . Before applying Monocle's ordering algorithm, we use the ```reduceDimensions``` function to perform dimension reduction on this set of 100 genes.  Finally, the ```orderCells``` function carries out the Monocle algorithm. 
 
 Since we have already demonstrated that major cell type (inhibitory neuron, excitatory neuron, and non-neuronal cell) is a major source of variation, in this module we will examine the trajectories within the major neuronal cell types.  To do so, we create two separate ```CellDataSets``` by subsetting on the major class listed in the phenotypic metadata and carrying out the Monocle algorithm separately on both.  We also subset on the cells that have a major labeled dissection layer other than "All" - since these represent cells extracted from a pool of different layers (lower versus upper in Inhibitory neurons; L1-L6 in Excitatory neurons).
 
 ```{r Pseudotime algorithm, eval = TRUE, echo = TRUE}
-options(expressions = 500000) # 'under-the-hood' option; need to execute if using OSX or Windows due to a limitation on C stack size
-
 # Run Monocle on subset of Inhibitory neurons
 cset.inhibitory <- cset[,phenoData(cset)$major_class=="Inhibitory" & 
                          phenoData(cset)$layer_dissectoin %in% c("lower", "upper")]
 cset.inhibitory <- setOrderingFilter(cset.inhibitory, ordering_genes=rownames(cset.inhibitory)[1:100])
-cset.inhibitory <- reduceDimension(cset.inhibitory, use_irlba = FALSE) # Reduce dimensionality
-cset.inhibitory <- orderCells(cset.inhibitory, num_paths = 1, reverse = FALSE) # Order cells
+cset.inhibitory <- reduceDimension(cset.inhibitory) # Reduce dimensionality
+cset.inhibitory <- orderCells(cset.inhibitory) # Order cells
 
 # Run Monocle on subset of Excitatory neurons
 cset.excitatory <- cset[,phenoData(cset)$major_class=="Excitatory" & 
                          phenoData(cset)$layer_dissectoin %in% c("L1", "L2/3", "L4", "L5", "L6", "L6a", "L6b")]
 cset.excitatory <- setOrderingFilter(cset.excitatory, ordering_genes=rownames(cset.excitatory)[1:100])
-cset.excitatory <- reduceDimension(cset.excitatory, use_irlba = FALSE) # Reduce dimensionality
-cset.excitatory <- orderCells(cset.excitatory, num_paths = 1, reverse = FALSE) # Order cells
+cset.excitatory <- reduceDimension(cset.excitatory) # Reduce dimensionality
+cset.excitatory <- orderCells(cset.excitatory) # Order cells
 
 rm(cset) # clean up workspace
 ```
@@ -649,12 +653,12 @@ Next we plot the spanning tree to visualize the cell ordering projected on the f
 
 ```{r Pseudotime plotting, eval = TRUE, echo = TRUE}
 # plotting by various factors
-plot_spanning_tree(cset.inhibitory, color_by="layer_dissectoin") # plot spanning tree
-plot_spanning_tree(cset.inhibitory, color_by = "cre")
+plot_cell_trajectory(cset.inhibitory, color_by="layer_dissectoin") # plot spanning tree
+plot_cell_trajectory(cset.inhibitory, color_by = "cre")
 
 # Excitatory
-plot_spanning_tree(cset.excitatory, color_by="layer_dissectoin") # plot spanning tree
-plot_spanning_tree(cset.excitatory, color_by="cre") # plot spanning tree
+plot_cell_trajectory(cset.excitatory, color_by="layer_dissectoin") # plot spanning tree
+plot_cell_trajectory(cset.excitatory, color_by="cre") # plot spanning tree
 ```
 
 The spanning trees above suggest that the Cre reporter line explains more of the variation among the Inhibitory cells than does the spatial information (lower versus upper layer).  Is the same true for the Exitatory cells?
